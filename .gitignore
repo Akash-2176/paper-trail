@@ -1,0 +1,33 @@
+# Models & weights — never commit, staged locally
+*.gguf
+*.bin
+*.onnx
+*.tflite
+models/
+
+# Android
+*.apk
+*.aab
+*.keystore
+local.properties
+.gradle/
+build/
+.cxx/
+
+# Node
+node_modules/
+dist/
+.env
+.env.*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Sensitive — never commit real financial data
+sms-dump*
+*.sms
+fixtures/real-*
