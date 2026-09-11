@@ -99,3 +99,81 @@ Short records of the non-obvious choices, and what we rejected. Written before t
 **Decision.** Accept the cost. Chennai is the goal for this cycle.
 
 **Consequences.** If we advance, the Finale build is a separate decision — the reconciliation engine and on-device stack are portable to Productivity or Smart Living, but the framing would change.
+
+---
+
+## ADR-009 — P2P counterparty names are stored on-device, masked in the UI
+
+**Status:** Accepted
+
+**Context.** A bridge-payload assertion during pre-event verification found that
+the `merchant` field can contain a person's name. For UPI P2P transfers the
+"merchant" is an individual, not a business. Account numbers and balances were
+correctly withheld; this was not a redaction bug but an unconsidered case, and
+[ARCHITECTURE.md](ARCHITECTURE.md) §3.3 claims the bridge emits redacted objects.
+
+**Decision.**
+- Transactions are classified **P2P vs merchant** at parse time and tagged.
+- P2P counterparty names are **stored on-device**. They are the useful part of
+  the record — a name is a memory in a way that a UPI reference string is not,
+  and nothing leaves the handset.
+- P2P names are **masked in the UI to first name plus initial**, primarily
+  because demos and screenshots are shown in public rooms and on projectors.
+- Counterparty names are never logged and never committed to the repository.
+
+**Consequences.** §3.3's claim holds as written — no personal data crosses the
+bridge unconsidered — and the behaviour is a recorded choice rather than an
+accident if a judge probes it.
+
+---
+
+## ADR-010 — Sender-ID parsing rules, and a body-signature fallback
+
+**Status:** Accepted
+
+**Context.** Pre-event device verification (see
+[SPIKE-FINDINGS.md](SPIKE-FINDINGS.md) §2) produced three findings that break
+the obvious parser design: every real DLT header carries a `-S` suffix; a single
+bank arrives under several prefixes because the prefix encodes the telco route
+rather than the sender; and forwarded messages carry no bank identity whatsoever.
+
+The third finding matters disproportionately because seeded demo data is
+forwarded, so sender-based routing would be unavailable for precisely the
+messages shown to a jury.
+
+**Decision.**
+1. **Match the middle token only**, case-insensitive. Prefix and `-S` suffix are
+   treated as noise. No anchored full-header patterns.
+2. **Body-signature fallback.** When `ADDRESS` is a bare phone number, identify
+   the issuer from the body signature and known format patterns instead.
+3. Where possible, inject demo messages into the provider with correct DLT
+   headers so the primary path is the one exercised on stage.
+
+**Consequences.** (2) is built regardless of whether (3) succeeds. Real users
+receive forwarded and aggregated messages too, so the fallback is a robustness
+feature rather than a demo accommodation — and it is the answer to "what happens
+if the sender header is absent or spoofed?"
+
+---
+
+## ADR-011 — No build step in the product layer
+
+**Status:** Accepted
+
+**Context.** [ADR-002](#adr-002--thin-native-shell-hot-reloadable-product-layer)
+requires the product layer to be editable on-device throughout Red Light, when
+the laptop is closed as a build machine. Any transpiler or bundler reintroduces
+the dependency that decision exists to remove.
+
+**Decision.** Shell in Kotlin. Product layer in **plain JavaScript** — ES modules
+loaded directly by the WebView, vanilla DOM. No TypeScript, no bundler, no
+framework, no CDN dependencies.
+
+**Consequences.** Editing is edit → push → reload, with no compile. Type errors
+cost minutes; a broken iteration loop under Red Light costs hours, and that
+trade decides it. Any third-party library must be vendored to local storage
+before the event, since no network is assumed.
+
+**Rejected:** TypeScript — needs `tsc`, and running it in a terminal emulator on
+the phone at 3am to see a UI change is not a viable loop. React/Preact with a
+bundler, for the same reason.

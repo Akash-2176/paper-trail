@@ -71,3 +71,61 @@ Companion to [ARCHITECTURE.md](ARCHITECTURE.md).
 - [ ] Locate OriginOS battery-optimisation exemption setting **before** we need it
 
 ---
+
+---
+
+## Device assignment
+
+Three loaner iQOO 15 handsets, one per person. None sits idle — HackTracker
+telemetry (creative phone use 15% + Office Kit usage 10%) is read off device
+data, so three active devices generate three devices' worth of signal.
+
+| Device | Role | Notes |
+|---|---|---|
+| **A — demo** | Spare SIM, seeded SMS, final demo runs here | Kept pristine. No experimental builds, ever. |
+| **B — model** | GenieX, weights, NPU work | Where things crash and get force-stopped. Isolated from A deliberately. |
+| **C — integration** | Clean installs of the shell, permission flows | Confirms a build works from scratch. |
+
+Everyone drives their own handset from their laptop over Office Kit for the whole
+event — remote control, shared clipboard, file transfer. It is scored on usage
+counts and durations, so it accrues by habit, not by remembering at the end.
+
+Devices are iQOO property, stay in the hacking zone, and must be returned before
+exit. **One person owns the handback check for all three.**
+
+---
+
+## Red Light operating rules
+
+Derived from [SPIKE-FINDINGS.md](SPIKE-FINDINGS.md) §5.
+
+1. **Keep this tailing in a dedicated terminal during every Red Light block:**
+   ```
+   adb logcat -c && adb logcat -s PTLAB:* chromium:I
+   ```
+   A JS syntax error in a pushed page fails silently — the reload marker updates
+   but content does not render. Without the log open, a broken push is
+   indistinguishable from a working one.
+
+2. **The build must be debuggable.** Hot reload routes through
+   `/data/local/tmp` + `run-as`, which only works on a debuggable build. This is
+   load-bearing, not a convenience — get it right in the first Green window.
+
+3. **Grant the battery-optimisation exemption on every handset** before any long
+   run. Find the OriginOS setting early, not when it is needed.
+
+4. **Batch by window.** Compilers, package installs, model conversion and weight
+   pushes only happen under Green Light. Everything else — parsing, thresholds,
+   reconciliation logic, UI, demo rehearsal — is Red Light work.
+
+---
+
+## Language
+
+| Layer | Language | Why |
+|---|---|---|
+| Shell | Kotlin | Native access to SMS, CameraX, AudioRecord, GenieX |
+| Product | Plain JavaScript | No build step, so it stays editable on-device under Red Light — see [ADR-011](DECISIONS.md) |
+
+No TypeScript, no bundler, no framework, no CDN. Anything third-party is
+vendored locally before the event.
