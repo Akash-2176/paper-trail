@@ -212,7 +212,8 @@ var PTCapture = (function () {
           '<div class="transcript">“' + esc(text) + '”</div>' +
           '<div class="hint ok">' +
             (amount != null ? ('₹' + amount) : 'no amount heard') +
-            ' <span class="src">on-device' +
+            ' <span class="src">' +
+            (res && res.onDevice === false ? 'system asr' : 'on-device') +
             (res && res.partial ? ' · partial' : '') + '</span></div>';
       } else {
         box.innerHTML =

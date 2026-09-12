@@ -30,6 +30,12 @@ class SpeechEngine(private val act: AppCompatActivity) {
 
     companion object {
         private const val TAG = "PTLAB"
+
+        /** Grace for the service to release the previous session before a retry. */
+        private const val RETRY_DELAY_MS = 350L
+
+        /** locales x recognisers, plus slack. */
+        private const val MAX_ATTEMPTS = 8
     }
 
     private var recognizer: SpeechRecognizer? = null
@@ -37,9 +43,28 @@ class SpeechEngine(private val act: AppCompatActivity) {
     private var onResult: ((JSONObject) -> Unit)? = null
     private var partial: String = ""
 
+    /**
+     * Locales to try, in order. en-IN is preferred for rupee amounts, but the
+     * loaner has NO offline language pack for it and the recogniser dies in
+     * ~20ms with LANGUAGE_PACK_ERROR (code 13). en-US is the pack most likely to
+     * be present, and the default locale is the last resort.
+     */
+    private val LOCALES = listOf("en-IN", "en-US", "en-GB", "")
+
+    private var localeIndex = 0
+
+    /** Hard ceiling on retries, so a misbehaving service cannot loop forever. */
+    private var attempts = 0
+
+    /**
+     * isOnDeviceRecognitionAvailable() returns true whenever the service exists,
+     * even with no language pack installed - so it is not sufficient on its own.
+     * Availability is only proven once a locale actually starts.
+     */
     fun isAvailable(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(act)
+            (SpeechRecognizer.isOnDeviceRecognitionAvailable(act) ||
+                SpeechRecognizer.isRecognitionAvailable(act))
 
     fun status(): JSONObject = JSONObject().apply {
         put("available", isAvailable())
@@ -67,33 +92,92 @@ class SpeechEngine(private val act: AppCompatActivity) {
             return
         }
 
-        act.runOnUiThread {
-            try {
-                stopInternal()
-                partial = ""
-                onResult = onDone
-                val r = SpeechRecognizer.createOnDeviceSpeechRecognizer(act)
-                recognizer = r
-                r.setRecognitionListener(listener)
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                    )
-                    // Indian English: the spoken amounts are rupees.
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                }
-                r.startListening(intent)
-                listening = true
-                Log.i(TAG, "asr: listening (on-device)")
-            } catch (e: Throwable) {
-                listening = false
-                Log.e(TAG, "asr: start failed: ${e.message}")
-                deliver(JSONObject().put("ok", false).put("error", e.message ?: "start failed"))
+        localeIndex = 0
+        useSystemRecognizer = false
+        attempts = 0
+        onResult = onDone
+        act.runOnUiThread { attempt() }
+    }
+
+    /** True once the on-device path has exhausted its locales. */
+    private var useSystemRecognizer = false
+
+    /**
+     * Try one (recogniser, locale) combination. A LANGUAGE_PACK_ERROR moves to
+     * the next locale, and exhausting those falls back to the system recogniser,
+     * which can use a different engine entirely.
+     */
+    private fun attempt() {
+        try {
+            stopInternal()
+            partial = ""
+            val r = if (useSystemRecognizer) {
+                SpeechRecognizer.createSpeechRecognizer(act)
+            } else {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(act)
             }
+            recognizer = r
+            r.setRecognitionListener(listener)
+            val locale = LOCALES.getOrElse(localeIndex) { "" }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                if (locale.isNotBlank()) {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
+                }
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                // Give the speaker room; the defaults cut off very short phrases.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                    1500L
+                )
+            }
+            r.startListening(intent)
+            listening = true
+            Log.i(
+                TAG, "asr: listening (" +
+                    (if (useSystemRecognizer) "system" else "on-device") +
+                    ", locale=" + (locale.ifBlank { "default" }) + ")"
+            )
+        } catch (e: Throwable) {
+            listening = false
+            Log.e(TAG, "asr: start failed: ${e.message}")
+            deliver(JSONObject().put("ok", false).put("error", e.message ?: "start failed"))
         }
+    }
+
+    /**
+     * Advance to the next locale, then to the system recogniser. Returns false
+     * when every option is spent.
+     */
+    private fun tryNext(): Boolean {
+        if (++attempts > MAX_ATTEMPTS) {
+            Log.w(TAG, "asr: giving up after $attempts attempts")
+            return false
+        }
+        /* Retrying immediately on a just-destroyed recogniser yields
+         * ERROR_TOO_MANY_REQUESTS (11) - the service needs a moment to tear the
+         * old session down. Observed on device. A short delay makes the retry
+         * land cleanly. */
+        if (localeIndex + 1 < LOCALES.size) {
+            localeIndex++
+            act.window.decorView.postDelayed({ attempt() }, RETRY_DELAY_MS)
+            return true
+        }
+        if (!useSystemRecognizer) {
+            useSystemRecognizer = true
+            localeIndex = 0
+            act.window.decorView.postDelayed({ attempt() }, RETRY_DELAY_MS)
+            return true
+        }
+        return false
     }
 
     /** Ask the recogniser to finish; the final transcript arrives via the callback. */
@@ -162,10 +246,16 @@ class SpeechEngine(private val act: AppCompatActivity) {
             if (text.isBlank()) {
                 deliver(JSONObject().put("ok", false).put("error", "no speech recognised"))
             } else {
-                Log.i(TAG, "asr: transcript ${text.length} chars")
+                Log.i(TAG, "asr: transcript ${text.length} chars via " +
+                    (if (useSystemRecognizer) "system" else "on-device"))
                 deliver(
                     JSONObject().put("ok", true).put("text", text)
-                        .put("source", "android-ondevice-asr")
+                        // Be explicit about which engine answered: the system
+                        // recogniser may not be on-device, and ADR-007 turns on
+                        // that distinction.
+                        .put("source", if (useSystemRecognizer) "android-system-asr"
+                                       else "android-ondevice-asr")
+                        .put("onDevice", !useSystemRecognizer)
                 )
             }
         }
@@ -178,10 +268,25 @@ class SpeechEngine(private val act: AppCompatActivity) {
                 Log.i(TAG, "asr: error $error, using partial")
                 deliver(
                     JSONObject().put("ok", true).put("text", partial)
-                        .put("source", "android-ondevice-asr").put("partial", true)
+                        .put("source", if (useSystemRecognizer) "android-system-asr"
+                                       else "android-ondevice-asr")
+                        .put("onDevice", !useSystemRecognizer)
+                        .put("partial", true)
                 )
                 return
             }
+
+            /* Error 13 is LANGUAGE_PACK_ERROR: the service exists but no offline
+             * model is installed for that locale, so it aborts in about 20ms and
+             * looks to the user like the mic flashed and closed. Observed on the
+             * loaner for en-IN. Fall through the other locales, then to the
+             * system recogniser, before reporting failure. */
+            if (isSetupError(error)) {
+                Log.w(TAG, "asr: error $error on locale index $localeIndex, trying next")
+                listening = false
+                if (tryNext()) return
+            }
+
             Log.w(TAG, "asr: error $error")
             deliver(
                 JSONObject().put("ok", false)
@@ -193,7 +298,24 @@ class SpeechEngine(private val act: AppCompatActivity) {
     /** Live partial transcript, set by the caller for on-screen feedback. */
     var onPartial: ((String) -> Unit)? = null
 
+    /**
+     * Errors that mean "this configuration cannot work", as opposed to "the user
+     * said nothing". Code 13 is LANGUAGE_PACK_ERROR on this device; the constant
+     * is not in the public SDK, so it is matched numerically.
+     */
+    private fun isSetupError(code: Int): Boolean = when (code) {
+        13 -> true                                              // LANGUAGE_PACK_ERROR
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> true          // 8, service still tearing down
+        11 -> true                                              // TOO_MANY_REQUESTS
+        SpeechRecognizer.ERROR_CLIENT -> true
+        SpeechRecognizer.ERROR_SERVER -> true
+        SpeechRecognizer.ERROR_NETWORK -> true
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> true
+        else -> false
+    }
+
     private fun describe(code: Int): String = when (code) {
+        13 -> "no offline language pack installed for speech"
         SpeechRecognizer.ERROR_AUDIO -> "audio error"
         SpeechRecognizer.ERROR_CLIENT -> "client error"
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "microphone permission denied"
