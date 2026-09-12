@@ -177,3 +177,41 @@ before the event, since no network is assumed.
 **Rejected:** TypeScript — needs `tsc`, and running it in a terminal emulator on
 the phone at 3am to see a UI change is not a viable loop. React/Preact with a
 bundler, for the same reason.
+
+---
+
+## ADR-012 — Q4_K_M on the CPU path, not Q4_0
+
+**Status:** Accepted, supersedes the quantisation rule in
+[ARCHITECTURE.md](ARCHITECTURE.md) §4 for the `llama_cpp` path only
+
+**Context.** §4 requires GGUF weights to be **Q4_0**, because K-quants are not
+optimised for Hexagon and silently lose NPU acceleration. That reasoning is
+sound and still holds — but it is a statement about the `qairt`/NPU path.
+
+On device we currently run `llama_cpp` on **CPU**; `qairt` is not yet wired. With
+the staged Unsloth **Q4_0** build of Qwen2.5-VL-3B, inference ran correctly
+(25 tok/s, `mmproj loaded: vision=true`, image injected) but produced fluent
+multilingual garbage — CJK and mixed-script tokens — for a plain English
+receipt. The same prompt, image and code against ggml-org's **Q4_K_M** build
+returned the receipt verbatim and parsed to the right number.
+
+The mmproj projector was eliminated as the cause first: both a ggml-org and a
+publisher-matched Unsloth projector were tried against the Q4_0 model, and both
+produced garbage.
+
+**Decision.** Ship **Q4_K_M** for the vision model while inference runs on CPU.
+`VisionEngine.modelFile()` prefers a `Q4_K` build and falls back to whatever is
+present.
+
+**Consequences.** Correct output on the path we actually run beats a
+quantisation chosen for an accelerator we are not yet using. **This must be
+revisited when `qairt` is wired** — at that point Q4_0 becomes load-bearing
+again, and the Q4_0 build needs re-testing on the NPU rather than the CPU.
+
+Also recorded: the projector must come from the **same publisher** as the
+weights. Mixing a ggml-org mmproj with an Unsloth model is a mismatched pair.
+
+**Rejected:** shipping Q4_0 and accepting degraded output — a confidently wrong
+reading of a receipt is the failure [ADR-004](#adr-004--the-model-never-does-arithmetic)
+exists to prevent.
