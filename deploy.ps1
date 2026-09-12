@@ -70,7 +70,7 @@ foreach ($s in $serials) {
     $steps['whitelist'] = ($wl -match [regex]::Escape($Pkg))
 
     # --- permissions ------------------------------------------------------
-    foreach ($p in @('READ_SMS', 'CAMERA', 'POST_NOTIFICATIONS')) {
+    foreach ($p in @('READ_SMS', 'CAMERA', 'RECORD_AUDIO', 'POST_NOTIFICATIONS')) {
         & $Adb -s $s shell "pm grant $Pkg android.permission.$p" > $null 2>&1
     }
     $dump = & $Adb -s $s shell "dumpsys package $Pkg" 2>&1 | Out-String
@@ -80,9 +80,18 @@ foreach ($s in $serials) {
     # files/www only exists after the app has run once and seeded from assets. On a
     # freshly installed device it does not, so create it rather than assuming device
     # B and C look like device A.
-    & $Adb -s $s shell "run-as $Pkg mkdir -p files/www" > $null 2>&1
+    & $Adb -s $s shell "run-as $Pkg mkdir -p files/www/js" > $null 2>&1
     & $Adb -s $s push $Page /data/local/tmp/index.html > $null 2>&1
     $cp = & $Adb -s $s shell "run-as $Pkg cp /data/local/tmp/index.html files/www/index.html 2>&1" 2>&1 | Out-String
+    # product-layer JS modules (ADR-011: plain JS, no bundler)
+    $jsDir = Join-Path $Root 'app\src\main\assets\www\js'
+    if (Test-Path $jsDir) {
+        foreach ($j in Get-ChildItem $jsDir -Filter *.js) {
+            & $Adb -s $s push $j.FullName "/data/local/tmp/$($j.Name)" > $null 2>&1
+            $r = & $Adb -s $s shell "run-as $Pkg cp /data/local/tmp/$($j.Name) files/www/js/$($j.Name) 2>&1" 2>&1 | Out-String
+            if (-not [string]::IsNullOrWhiteSpace($r)) { $cp += $r }
+        }
+    }
     # run-as prints nothing on success; any output means it failed.
     $steps['page'] = [string]::IsNullOrWhiteSpace($cp)
     if (-not $steps['page']) { Say "    run-as: $($cp.Trim())" DarkYellow }
