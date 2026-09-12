@@ -77,15 +77,21 @@ class CameraCapture(private val act: AppCompatActivity) {
         ensureBound { ok -> onReady(ok, ok && previewView != null) }
     }
 
-    /** Release the sensor. Leaving it bound keeps the camera hot. */
+    /**
+     * Release the sensor. Leaving it bound keeps the camera hot.
+     * CameraX requires unbind on the main thread, and this is called from the
+     * WebView's JS thread, so hop explicitly.
+     */
     fun close() {
-        try {
-            provider?.unbindAll()
-            bound = false
-            imageCapture = null
-            Log.i(TAG, "camera: released")
-        } catch (e: Exception) {
-            Log.e(TAG, "camera: release failed: ${e.message}")
+        act.runOnUiThread {
+            try {
+                provider?.unbindAll()
+                bound = false
+                imageCapture = null
+                Log.i(TAG, "camera: released")
+            } catch (e: Exception) {
+                Log.e(TAG, "camera: release failed: ${e.message}")
+            }
         }
     }
 

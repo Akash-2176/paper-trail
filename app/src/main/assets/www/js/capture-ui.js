@@ -153,26 +153,36 @@ var PTCapture = (function () {
         setTimeout(closeSheet, 2000);
         return;
       }
+      var secs = ((Date.now() - voiceStart) / 1000).toFixed(1);
       el('ptTranscript').innerHTML =
         '<div id="ptTrx" class="hint">transcribing…</div>';
       PTExtract.fromAudio(s.path, function (ex) {
         var box = el('ptTrx');
         if (box) {
-          box.innerHTML = ex.ok
-            ? '<div class="transcript">“' + esc(ex.text || '') + '”</div>' +
+          if (ex.ok) {
+            box.innerHTML =
+              '<div class="transcript">“' + esc(ex.text || '') + '”</div>' +
               '<div class="hint ok">' +
                 (ex.amount != null ? ('₹' + ex.amount) : 'no amount found') +
-                ' <span class="src">' + esc(ex.source) + '</span></div>'
-            : '<span class="err">' + esc(ex.error || 'no transcript') +
-              '</span> — type the amount below';
+                ' <span class="src">' + esc(ex.source) + '</span></div>';
+          } else {
+            /* No ASR on device. Say what was actually captured rather than
+             * showing a bare error - the WAV is real and Whisper-ready, only
+             * the transcription step is missing. */
+            box.innerHTML =
+              '<div class="hint">recorded ' + secs + 's · 16kHz mono WAV</div>' +
+              '<div class="hint err">' + esc(ex.error || 'no transcript') + '</div>' +
+              '<div class="hint">type the amount — the note is kept with the clip</div>';
+          }
         }
         if (onResult) onResult('voice', {
-          amount: ex.amount, note: ex.text || 'voice note',
+          amount: ex.amount,
+          note: ex.text || ('voice note ' + secs + 's'),
           path: s.path, extracted: ex
         });
         // Keep the transcript on screen briefly so it is readable, as asked.
         if (transcriptTimer) clearTimeout(transcriptTimer);
-        transcriptTimer = setTimeout(closeSheet, ex.ok ? 3200 : 3600);
+        transcriptTimer = setTimeout(closeSheet, ex.ok ? 3200 : 4200);
       });
     };
   }
