@@ -160,6 +160,16 @@ var PTReconcile = (function () {
         continue;
       }
 
+      /* Corroboration bonus. An exact amount together with a strong merchant
+       * match is decisive evidence regardless of how stale the message is -
+       * two independent signals agreeing is worth more than either alone, and
+       * without this a plainly correct pair stalls at "confirm?" purely because
+       * the SMS is old. Time still ranks candidates against each other. */
+      if (am.kind === 'exact' && ms >= 0.8) {
+        score += 0.18;
+        reasons.push('amount+merchant corroborate');
+      }
+
       var conf = Math.max(0, Math.min(1, score));
       out.push({
         txn: t,

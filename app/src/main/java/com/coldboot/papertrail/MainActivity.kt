@@ -69,6 +69,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         bridge = Bridge(this, webView, CameraStub(this), GenieBinding(this))
+        bridge.realCamera = CameraCapture(this)
+        bridge.audio = AudioRecorder(this)
         webView.addJavascriptInterface(bridge, Bridge.NAME)
 
         // ContentObserver, not a BroadcastReceiver (ADR-001 holds: SMS still does not

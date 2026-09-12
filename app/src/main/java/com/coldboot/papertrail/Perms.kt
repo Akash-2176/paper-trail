@@ -26,7 +26,7 @@ object Perms {
             PackageManager.PERMISSION_GRANTED
 
     fun needed(): Array<String> {
-        val list = mutableListOf(Manifest.permission.READ_SMS, Manifest.permission.CAMERA)
+        val list = mutableListOf(Manifest.permission.READ_SMS, Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add(Manifest.permission.POST_NOTIFICATIONS)
         }

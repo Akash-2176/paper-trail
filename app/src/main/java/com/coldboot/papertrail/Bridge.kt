@@ -58,9 +58,30 @@ class Bridge(
         (ctx as? Activity)?.let { Perms.requestSms(it) }
     }
 
-    /** CameraX capture path. STUB - proves the file path exists end to end. */
+    /**
+     * Real CameraX capture. Returns {ok,pending:true} immediately; the saved path
+     * arrives as a 'capture' push when the JPEG is written. Falls back to the stub
+     * if no Activity-backed camera is available.
+     */
     @JavascriptInterface
-    fun capturePhoto(): String = camera.captureStub().toString()
+    fun capturePhoto(): String {
+        val cam = realCamera
+            ?: return camera.captureStub().toString()
+        return cam.capture { result -> push("capture", result.toString()) }.toString()
+    }
+
+    /** 16kHz mono PCM WAV - the rate Whisper expects. */
+    @JavascriptInterface
+    fun startRecording(): String = (audio?.start()
+        ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
+
+    @JavascriptInterface
+    fun stopRecording(): String = (audio?.stop()
+        ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
+
+    /** Set by MainActivity once the Activity exists. */
+    var realCamera: CameraCapture? = null
+    var audio: AudioRecorder? = null
 
     /** GenieX binding is PRESENT but deliberately NOT WIRED yet. */
     @JavascriptInterface
