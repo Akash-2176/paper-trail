@@ -98,7 +98,15 @@ function callBridge(method, arg) {
 }
 
 // native -> JS push target. Bridge.push() calls this.
+// Events: 'permissions' (grant result), 'sms' (ContentObserver re-read).
 window.PTOnEvent = function (name, payload) {
+  if (name === 'sms') {
+    var n = '?';
+    try { n = JSON.parse(payload).length; } catch (e) {}
+    stamp();
+    show('PUSH: sms (observer) rows=' + n, payload);
+    return;
+  }
   show('PUSH: ' + name, payload);
 };
 

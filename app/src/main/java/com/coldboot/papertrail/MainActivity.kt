@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var bridge: Bridge
+    private lateinit var watcher: SmsWatcher
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,7 +71,12 @@ class MainActivity : AppCompatActivity() {
         bridge = Bridge(this, webView, CameraStub(this), GenieBinding(this))
         webView.addJavascriptInterface(bridge, Bridge.NAME)
 
-        if (!Perms.hasSms(this)) Perms.requestSms(this)
+        // ContentObserver, not a BroadcastReceiver (ADR-001 holds: SMS still does not
+        // trigger a capture flow, it only prompts a re-read and a reconciliation retry).
+        watcher = SmsWatcher(this) { json -> bridge.push("sms", json) }
+        bridge.onSimulate = { watcher.simulateChange() }
+
+        if (!Perms.hasSms(this)) Perms.requestSms(this) else watcher.register()
 
         val url = WebHost.indexUrl(this)
         Log.i(TAG, "web: loading " + url)
@@ -86,6 +92,8 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == Perms.REQ) {
             val granted = Perms.hasSms(this)
             Log.i(TAG, "perm: READ_SMS granted=" + granted)
+            // Observer can only register once the permission actually lands.
+            if (granted) watcher.register()
             // native -> JS push, proves the reverse direction of the bridge
             bridge.push(
                 "permissions",
@@ -101,6 +109,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        watcher.unregister()
         webView.destroy()
         super.onDestroy()
     }

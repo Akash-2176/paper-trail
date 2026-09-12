@@ -62,13 +62,16 @@ object SmsReader {
     fun issuerFromSender(address: String?): String? {
         if (address.isNullOrBlank()) return null
         val a = address.trim().uppercase()
+        // A bare number is a forward. Return null so the body-signature fallback runs.
+        // The number itself is discarded here and never travels further - not stored,
+        // not logged, not emitted, not masked. See redaction note on query().
         val digitsOnly = a.removePrefix("+").all { it.isDigit() }
         if (digitsOnly) return null
         val parts = a.split("-").filter { it.isNotBlank() }
         val middle = when {
-            parts.size >= 3 -> parts[1]
-            parts.size == 2 -> parts[1]
-            parts.size == 1 -> parts[0]
+            parts.size >= 3 -> parts[1]   // AD-HDFCBK-S  -> HDFCBK (prefix + -S discarded)
+            parts.size == 2 -> parts[1]   // AD-HDFCBK    -> HDFCBK
+            parts.size == 1 -> parts[0]   // HDFCBK
             else -> return null
         }
         ISSUERS[middle]?.let { return it }
@@ -227,11 +230,16 @@ object SmsReader {
                 val iDate = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
 
                 while (c.moveToNext()) {
-                    val addr = c.getString(iAddr)
                     val rawBody = c.getString(iBody) ?: continue
                     val rowId = c.getLong(iId)
                     val rowTs = c.getLong(iDate)
-                    val routed = issuerFromSender(addr)
+
+                    // REDACTION BOUNDARY. The sender address is read and collapsed to an
+                    // issuer token in this one expression. It is never bound to a named
+                    // variable, so nothing downstream can reference the phone number even
+                    // by accident. For a bare-number forward this yields null and the
+                    // number is simply gone - not stored, not logged, not masked.
+                    val routed: String? = issuerFromSender(c.getString(iAddr))
 
                     // A forwarded row can hold several messages concatenated. Emit one
                     // transaction per segment instead of only the first.

@@ -74,6 +74,21 @@ class Bridge(
     @JavascriptInterface
     fun wwwPath(): String = WebHost.wwwDir(ctx).absolutePath
 
+    /**
+     * Test hook: simulate a provider change so the ContentObserver -> re-read ->
+     * native->JS push path can be exercised without writing to the SMS provider.
+     * Android 16 refuses adb writes to content://sms when there is no default SMS
+     * app, so a real insert cannot be staged from the host.
+     */
+    @JavascriptInterface
+    fun simulateSmsChange() {
+        Log.i(TAG, "bridge: simulateSmsChange")
+        onSimulate?.invoke()
+    }
+
+    /** Set by MainActivity to route into the real SmsWatcher debounce path. */
+    var onSimulate: (() -> Unit)? = null
+
     /** Force re-copy from assets, then reload. Escape hatch if a push breaks the page. */
     @JavascriptInterface
     fun resetFromAssets() {
