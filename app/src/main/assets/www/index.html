@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Paper Trail</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    background: #0d0f12; color: #e6e8eb;
+    font: 14px/1.5 -apple-system, Roboto, system-ui, sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .01em; }
+  .sub { color: #7e8794; font-size: 12px; margin-bottom: 14px; }
+  .marker {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    background: #16301f; color: #4ade80; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  button {
+    flex: 1 1 auto; min-width: 96px; padding: 10px 12px;
+    background: #1a1e24; color: #e6e8eb;
+    border: 1px solid #2b323c; border-radius: 8px;
+    font-size: 13px; font-family: inherit;
+  }
+  button:active { background: #232932; }
+  pre {
+    background: #14171c; border: 1px solid #232930; border-radius: 8px;
+    padding: 12px; overflow-x: auto; font-size: 11px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word; margin: 0;
+    max-height: 62vh; overflow-y: auto;
+  }
+  .err { color: #f87171; }
+</style>
+</head>
+<body>
+
+<h1>Paper Trail &mdash; shell</h1>
+<div class="sub">
+  product layer &middot; plain JS, no build step (ADR-011) &middot;
+  <span class="marker" id="marker">boot</span>
+</div>
+
+<div class="row">
+  <button onclick="callBridge('ping')">ping</button>
+  <button onclick="callBridge('readSms', 25)">readSms</button>
+  <button onclick="callBridge('capturePhoto')">capture</button>
+  <button onclick="callBridge('genieStatus')">genie</button>
+  <button onclick="callBridge('hasSmsPermission')">perm?</button>
+  <button onclick="callBridge('requestSmsPermission')">grant</button>
+</div>
+
+<pre id="out">tap a button</pre>
+
+<script>
+// RELOAD MARKER - bump this string on every push so a hot reload is visibly proven.
+var BUILD_MARKER = 'shell-v1';
+
+var out = document.getElementById('out');
+var marker = document.getElementById('marker');
+
+function stamp() {
+  var t = new Date().toTimeString().slice(0, 8);
+  marker.textContent = BUILD_MARKER + ' @ ' + t;
+}
+
+function show(label, value) {
+  var body;
+  try {
+    body = typeof value === 'string' ? JSON.parse(value) : value;
+    body = JSON.stringify(body, null, 2);
+  } catch (e) {
+    body = String(value);
+  }
+  out.textContent = label + '\n\n' + body;
+  if (window.PT && PT.log) PT.log(label + ' -> ok');
+}
+
+function callBridge(method, arg) {
+  if (!window.PT) {
+    out.innerHTML = '<span class="err">window.PT missing - bridge not attached</span>';
+    return;
+  }
+  if (typeof PT[method] !== 'function') {
+    out.innerHTML = '<span class="err">PT.' + method + ' is not a function</span>';
+    return;
+  }
+  try {
+    var r = (arg === undefined) ? PT[method]() : PT[method](arg);
+    show(method + '()', r);
+  } catch (e) {
+    out.innerHTML = '<span class="err">' + method + ' threw: ' + e + '</span>';
+    if (PT.log) PT.log(method + ' threw: ' + e);
+  }
+}
+
+// native -> JS push target. Bridge.push() calls this.
+window.PTOnEvent = function (name, payload) {
+  show('PUSH: ' + name, payload);
+};
+
+stamp();
+if (window.PT && PT.log) PT.log('page ready, marker=' + BUILD_MARKER);
+// Auto-ping on load so a broken bridge is obvious without tapping anything.
+if (window.PT) { try { show('ping() auto', PT.ping()); } catch (e) {} }
+</script>
+
+</body>
+</html>

@@ -31,3 +31,6 @@ Thumbs.db
 sms-dump*
 *.sms
 fixtures/real-*
+
+# Gradle wrapper jar is not vendored; offline builds use the cached distribution
+gradle/wrapper/gradle-wrapper.jar
