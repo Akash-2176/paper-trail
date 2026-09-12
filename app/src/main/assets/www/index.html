@@ -240,6 +240,7 @@ function refreshSms(silent) {
 
 function runReconcile() {
   var r = PTStore.reconcileAll();
+  PTStore.save();
   pendingConfirms = r.confirm;
   var flash = {};
   r.merged.forEach(function (m) { flash[m.id] = 1; });
@@ -253,6 +254,7 @@ function doConfirm(i) {
   var c = pendingConfirms[i];
   if (!c) return;
   var m = PTStore.confirmMerge(c.pending.id, c.cand.txn.id);
+  PTStore.save();
   pendingConfirms.splice(i, 1);
   var flash = {}; if (m) flash[m.id] = 1;
   render(flash);
@@ -270,6 +272,7 @@ function capture(source, extra) {
     direction: 'debit'
   });
   $('amt').value = ''; $('note').value = '';
+  PTStore.save();
   render();
   // A capture immediately re-reads and attempts reconciliation, so the merge
   // lands without another tap when the SMS is already in the inbox.
@@ -288,11 +291,25 @@ $('bVoice').onclick = function () { PTCapture.startVoice(); };
  * what we have and leave the user to type the number. Never a dead end. */
 PTCapture.onResult(function (kind, r) {
   if (r.note) $('note').value = r.note;
-  if (r.amount != null && r.amount > 0) {
-    $('amt').value = r.amount;
+  var amt = r.amount;
+  if (amt != null && amt > 0) {
+    // OCR glyph confusion is a guess; the bank SMS is fact. Prefer an amount
+    // the bank actually charged over one the camera thought it saw.
+    refreshSms(true);
+    var fix = PTExtract.reconcileAmount(amt, PTStore.txns);
+    if (fix.corrected) {
+      PTBridge.log('amount corrected ' + fix.from + ' -> ' + fix.amount +
+                   ' (' + fix.reason + ')');
+    }
+    amt = fix.amount;
+  }
+  if (amt != null && amt > 0) {
+    $('amt').value = amt;
     capture(kind, { path: r.path, note: r.note });
   } else {
-    $('amt').focus();
+    /* Do NOT focus the field here. Focusing raises the soft keyboard while the
+     * capture sheet is still closing, which covers the screen and looks like a
+     * failure. The user can tap the field themselves. */
     PTBridge.log(kind + ': no amount extracted, awaiting manual entry');
   }
 });
@@ -329,12 +346,22 @@ window.PTOnEvent = function (name, payload) {
     if (window.__ptTranscriptCb) { var tc = window.__ptTranscriptCb; window.__ptTranscriptCb = null; tc(t); }
     return;
   }
+  if (name === 'partial') {
+    var pp = PTBridge.asObj(payload, {});
+    if (window.__ptPartialCb && pp.text) window.__ptPartialCb(pp.text);
+    return;
+  }
   if (name === 'permissions') { refreshSms(); }
 };
 
 stamp();
+// Restore the ledger BEFORE reading SMS, so previously reconciled rows are
+// known and their transactions are not offered again as unmatched.
+PTStore.load();
 refreshSms();
-PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER);
+runReconcile();
+PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER +
+             ' restored=' + PTStore.reconciled.length + 'r/' + PTStore.pending.length + 'p');
 </script>
 
 </body>

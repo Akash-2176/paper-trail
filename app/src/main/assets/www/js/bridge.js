@@ -156,6 +156,73 @@ var PTBridge = (function () {
     }, 60000);
   }
 
+  /* Live on-device speech. onPartial fires as words are recognised; the final
+   * transcript (or an error) arrives once via cb. */
+  function startListening(cb, onPartial) {
+    if (!isDevice || typeof native.startListening !== 'function') {
+      setTimeout(function () {
+        cb({ ok: true, stub: true, text: 'two hundred fifty for coffee',
+             source: 'desktop-stub' });
+      }, 1200);
+      return;
+    }
+    window.__ptTranscriptCb = cb;
+    window.__ptPartialCb = onPartial || null;
+    safe(function () { native.startListening(); });
+  }
+
+  function stopListening() {
+    if (isDevice && native.stopListening) safe(function () { native.stopListening(); });
+  }
+
+  function cancelListening() {
+    window.__ptTranscriptCb = null;
+    window.__ptPartialCb = null;
+    if (isDevice && native.cancelListening) safe(function () { native.cancelListening(); });
+  }
+
+  function speechStatus() {
+    if (!isDevice || typeof native.speechStatus !== 'function') {
+      return { available: false, stub: true };
+    }
+    return safe(function () {
+      return asObj(native.speechStatus(), { available: false });
+    }, { available: false });
+  }
+
+  // --- persistence ------------------------------------------------------
+
+  function loadLedger() {
+    if (!isDevice || typeof native.loadLedger !== 'function') {
+      try { return JSON.parse(localStorage.getItem('pt.ledger') || '{}'); }
+      catch (e) { return {}; }
+    }
+    return safe(function () { return asObj(native.loadLedger(), {}); }, {});
+  }
+
+  function saveLedger(obj) {
+    var json;
+    try { json = JSON.stringify(obj); } catch (e) { return false; }
+    if (!isDevice || typeof native.saveLedger !== 'function') {
+      try { localStorage.setItem('pt.ledger', json); return true; }
+      catch (e) { return false; }
+    }
+    return safe(function () { return !!native.saveLedger(json); }, false);
+  }
+
+  function clearLedger() {
+    if (!isDevice || typeof native.clearLedger !== 'function') {
+      try { localStorage.removeItem('pt.ledger'); } catch (e) {}
+      return true;
+    }
+    return safe(function () { return !!native.clearLedger(); }, false);
+  }
+
+  function storageUsage() {
+    if (!isDevice || typeof native.storageUsage !== 'function') return {};
+    return safe(function () { return asObj(native.storageUsage(), {}); }, {});
+  }
+
   function simulateSmsChange() {
     if (isDevice && native.simulateSmsChange) safe(function () { native.simulateSmsChange(); });
   }
@@ -168,6 +235,14 @@ var PTBridge = (function () {
     visionExtract: visionExtract,
     visionStatus: visionStatus,
     transcribe: transcribe,
+    startListening: startListening,
+    stopListening: stopListening,
+    cancelListening: cancelListening,
+    speechStatus: speechStatus,
+    loadLedger: loadLedger,
+    saveLedger: saveLedger,
+    clearLedger: clearLedger,
+    storageUsage: storageUsage,
     readSms: readSms,
     capturePhoto: capturePhoto,
     startRecording: startRecording,

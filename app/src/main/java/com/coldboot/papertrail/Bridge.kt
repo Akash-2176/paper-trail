@@ -26,6 +26,9 @@ class Bridge(
     companion object {
         private const val TAG = "PTLAB"
         const val NAME = "PT"
+
+        /** Below this, OCR found too little to trust and the VLM is worth the wait. */
+        private const val OCR_MIN_CHARS = 40
     }
 
     // --- JS -> native -----------------------------------------------------
@@ -76,8 +79,13 @@ class Bridge(
         ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
 
     @JavascriptInterface
-    fun stopRecording(): String = (audio?.stop()
-        ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
+    fun stopRecording(): String {
+        val r = audio?.stop()
+            ?: JSONObject().put("ok", false).put("error", "no recorder")
+        // WAV clips accumulate the same way captures did; keep them bounded too.
+        ImagePrep.trim(java.io.File(ctx.filesDir, "audio"), 8)
+        return r.toString()
+    }
 
     /** Start the viewfinder. Result arrives as a 'cameraOpen' push. */
     @JavascriptInterface
@@ -110,15 +118,48 @@ class Bridge(
     @JavascriptInterface
     fun visionExtract(path: String) {
         val v = vision
-        // VLM first when it is genuinely loaded; otherwise ML Kit OCR, which
-        // runs on-device with no download and no missing projector.
-        if (v != null && v.isReady()) {
-            v.extract(path) { result ->
-                if (result.optBoolean("ok")) push("vision", result.toString())
-                else runOcr(path, result.optString("error", "vlm failed"))
+        // Downscale once, up front. A raw 12MP capture exceeds the VLM's context
+        // entirely and slows OCR down for no accuracy gain.
+        val prepared = ImagePrep.prepare(path)
+        // Keep captures/ bounded; it reached 49MB in one afternoon unchecked.
+        ImagePrep.trim(java.io.File(ctx.filesDir, "captures"))
+
+        /* OCR FIRST, deliberately.
+         *
+         * Measured on device with a real Paytm receipt: ML Kit returns usable
+         * text in ~110ms, while the VLM on CPU still exceeds its 45s budget even
+         * after downscaling - roughly a thousand image tokens is simply slow
+         * without the NPU. A 50s stall is not usable in front of a user.
+         *
+         * The VLM is not wasted: it is better on creased, angled or handwritten
+         * receipts where OCR returns little. So run OCR, and only escalate to
+         * the model when OCR's text is too thin to parse. Revisit the ordering
+         * when qairt/NPU is wired and inference is fast. */
+        if (ocr != null) {
+            ocr!!.extract(prepared) { result ->
+                val text = result.optString("text", "")
+                if (result.optBoolean("ok") && text.length >= OCR_MIN_CHARS) {
+                    push("vision", result.toString())
+                } else if (v != null && v.isReady()) {
+                    Log.i(TAG, "vision: ocr thin (${text.length} chars), escalating to vlm")
+                    v.extract(prepared) { vres ->
+                        if (vres.optBoolean("ok")) push("vision", vres.toString())
+                        else push("vision", result.put("vlmError",
+                            vres.optString("error", "vlm failed")).toString())
+                    }
+                } else {
+                    push("vision", result.toString())
+                }
             }
+            return
+        }
+        // No OCR engine at all - fall back to the model.
+        if (v != null && v.isReady()) {
+            v.extract(prepared) { result -> push("vision", result.toString()) }
         } else {
-            runOcr(path, v?.status()?.optString("error") ?: "vlm not loaded")
+            push("vision", JSONObject().put("ok", false)
+                .put("error", v?.status()?.optString("error") ?: "no extraction available")
+                .toString())
         }
     }
 
@@ -137,29 +178,84 @@ class Bridge(
         }
     }
 
+    /** OCR only, bypassing the VLM. Used to compare the two paths on one image. */
+    @JavascriptInterface
+    fun ocrOnly(path: String) {
+        runOcr(ImagePrep.prepare(path), "ocrOnly requested")
+    }
+
     @JavascriptInterface
     fun visionStatus(): String =
         (vision?.status() ?: JSONObject().put("ok", false).put("error", "no engine")).toString()
 
     /**
-     * Audio -> text. NOT IMPLEMENTED: GenieX 0.4.0 ships no ASR - it bundles
-     * llama.cpp and ggml, but no whisper.cpp and no speech class. Reports the
-     * gap honestly so the UI falls back to typing rather than pretending.
+     * Audio -> text. Uses Android's on-device recogniser rather than a bundled
+     * Whisper: zero added app size, no model download, and it never leaves the
+     * device. GenieX 0.4.0 ships no ASR of its own.
+     *
+     * The file-based form is kept for the recorded WAV, but the recogniser works
+     * on a live mic stream, so [startListening] is the real path.
      */
     @JavascriptInterface
     fun transcribe(path: String) {
         push(
             "transcript",
             JSONObject().put("ok", false)
-                .put("error", "no on-device ASR: GenieX 0.4.0 ships no whisper runtime")
+                .put("error", "file transcription unsupported; use live listening")
                 .put("path", path).toString()
         )
     }
+
+    /** Live on-device speech. Result arrives as a 'transcript' push. */
+    @JavascriptInterface
+    fun startListening() {
+        val s = speech
+        if (s == null) {
+            push("transcript", JSONObject().put("ok", false)
+                .put("error", "no speech engine").toString())
+            return
+        }
+        s.onPartial = { text ->
+            push("partial", JSONObject().put("text", text).toString())
+        }
+        s.start { result -> push("transcript", result.toString()) }
+    }
+
+    @JavascriptInterface
+    fun stopListening() {
+        speech?.stop()
+    }
+
+    @JavascriptInterface
+    fun cancelListening() {
+        speech?.cancel()
+    }
+
+    @JavascriptInterface
+    fun speechStatus(): String =
+        (speech?.status() ?: JSONObject().put("available", false)).toString()
+
+    // --- persistence ------------------------------------------------------
+
+    /** The ledger survives restarts; only SMS was durable before. */
+    @JavascriptInterface
+    fun loadLedger(): String = LocalStore.load(ctx)
+
+    @JavascriptInterface
+    fun saveLedger(json: String): Boolean = LocalStore.save(ctx, json)
+
+    @JavascriptInterface
+    fun clearLedger(): Boolean = LocalStore.clear(ctx)
+
+    /** Observable storage footprint, so growth is measured rather than assumed. */
+    @JavascriptInterface
+    fun storageUsage(): String = LocalStore.usage(ctx)
 
     /** Set by MainActivity once the Activity exists. */
     var realCamera: CameraCapture? = null
     var audio: AudioRecorder? = null
     var vision: VisionEngine? = null
+    var speech: SpeechEngine? = null
     var ocr: OcrEngine? = null
 
     /** GenieX binding is PRESENT but deliberately NOT WIRED yet. */

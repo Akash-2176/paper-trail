@@ -11,6 +11,8 @@ var PTCapture = (function () {
   var voiceTimer = null;
   var voiceStart = 0;
   var transcriptTimer = null;
+  var voiceFinished = false;
+  var recordingWav = false;
 
   function el(id) { return document.getElementById(id); }
 
@@ -114,20 +116,41 @@ var PTCapture = (function () {
 
   // --- voice ------------------------------------------------------------
 
+  var st = null;
+
   function startVoice() {
-    var r = PTBridge.startRecording();
-    if (!r || !r.ok) {
-      openSheet('Voice', '<div class="hint err">mic unavailable: ' +
-        esc((r && r.error) || '?') + '</div>');
-      setTimeout(closeSheet, 2000);
-      return;
-    }
+    st = PTBridge.speechStatus();
     voiceStart = Date.now();
+    voiceFinished = false;
+
+    /* ONE microphone client at a time.
+     *
+     * Recording our own WAV while the recogniser also listens makes two clients
+     * contend for the mic - ours opens AudioSource.MIC, the recogniser opens
+     * VOICE_RECOGNITION. The first attempt after launch wins the race and every
+     * later one fails, which is exactly the "worked once, then stopped" symptom
+     * seen on device.
+     *
+     * When a recogniser is available it owns the mic and the transcript is the
+     * artifact we actually want. The WAV is only recorded when there is no
+     * recogniser, so a voice note is still captured either way. */
+    var r = null;
+    if (!st || !st.available) {
+      r = PTBridge.startRecording();
+      if (!r || !r.ok) {
+        openSheet('Voice', '<div class="hint err">mic unavailable: ' +
+          esc((r && r.error) || '?') + '</div>');
+        setTimeout(closeSheet, 2000);
+        return;
+      }
+    }
+    recordingWav = !!(r && r.ok);
     openSheet('Listening',
       '<div class="listening"><span class="dot"></span><span class="dot"></span>' +
         '<span class="dot"></span></div>' +
       '<div id="ptVoiceTime" class="timer">0.0s</div>' +
       '<div class="hint">speak the amount and what it was for</div>' +
+      '<div id="ptLive" class="transcript" style="display:none"></div>' +
       '<div class="shotRow">' +
         '<button id="ptStopRec" class="primary big">⏹ Stop</button>' +
         '<button id="ptCancelRec">Cancel</button>' +
@@ -139,52 +162,92 @@ var PTCapture = (function () {
       if (t) t.textContent = ((Date.now() - voiceStart) / 1000).toFixed(1) + 's';
     }, 100);
 
+    // Live on-device recognition. Words appear as they are spoken.
+    if (st && st.available) {
+      PTBridge.startListening(function (res) {
+        finishVoice(res);
+      }, function (partialText) {
+        var live = el('ptLive');
+        if (live) {
+          live.style.display = '';
+          live.textContent = partialText;
+        }
+      });
+    }
+
     el('ptCancelRec').onclick = function () {
-      try { PTBridge.stopRecording(); } catch (e) {}
+      try { PTBridge.cancelListening(); } catch (e) {}
+      if (recordingWav) { try { PTBridge.stopRecording(); } catch (e) {} }
+      recordingWav = false;
       closeSheet();
     };
 
     el('ptStopRec').onclick = function () {
       if (voiceTimer) { clearInterval(voiceTimer); voiceTimer = null; }
-      var s = PTBridge.stopRecording();
-      if (!s || !s.ok) {
-        el('ptTranscript').innerHTML =
-          '<div class="hint err">recording failed: ' + esc((s && s.error) || '?') + '</div>';
-        setTimeout(closeSheet, 2000);
-        return;
-      }
-      var secs = ((Date.now() - voiceStart) / 1000).toFixed(1);
-      el('ptTranscript').innerHTML =
-        '<div id="ptTrx" class="hint">transcribing…</div>';
-      PTExtract.fromAudio(s.path, function (ex) {
-        var box = el('ptTrx');
-        if (box) {
-          if (ex.ok) {
-            box.innerHTML =
-              '<div class="transcript">“' + esc(ex.text || '') + '”</div>' +
-              '<div class="hint ok">' +
-                (ex.amount != null ? ('₹' + ex.amount) : 'no amount found') +
-                ' <span class="src">' + esc(ex.source) + '</span></div>';
-          } else {
-            /* No ASR on device. Say what was actually captured rather than
-             * showing a bare error - the WAV is real and Whisper-ready, only
-             * the transcription step is missing. */
-            box.innerHTML =
-              '<div class="hint">recorded ' + secs + 's · 16kHz mono WAV</div>' +
-              '<div class="hint err">' + esc(ex.error || 'no transcript') + '</div>' +
-              '<div class="hint">type the amount — the note is kept with the clip</div>';
-          }
-        }
-        if (onResult) onResult('voice', {
-          amount: ex.amount,
-          note: ex.text || ('voice note ' + secs + 's'),
-          path: s.path, extracted: ex
-        });
-        // Keep the transcript on screen briefly so it is readable, as asked.
+      var live = el('ptLive');
+      if (live) live.style.display = 'none';
+      el('ptTranscript').innerHTML = '<div id="ptTrx" class="hint">transcribing…</div>';
+      if (st && st.available) {
+        // The final transcript arrives through the callback set in startVoice.
+        PTBridge.stopListening();
+        // Safety net: if the recogniser never reports, do not hang the sheet.
         if (transcriptTimer) clearTimeout(transcriptTimer);
-        transcriptTimer = setTimeout(closeSheet, ex.ok ? 3200 : 4200);
-      });
+        transcriptTimer = setTimeout(function () {
+          finishVoice({ ok: false, error: 'recogniser did not respond' });
+        }, 6000);
+      } else {
+        finishVoice({ ok: false, error: 'on-device recogniser unavailable' });
+      }
     };
+  }
+
+  /* One exit point for the voice sheet, whether the transcript arrived, failed,
+   * or timed out. Always stops the WAV recording so the mic is released. */
+  function finishVoice(res) {
+    if (voiceFinished) return;
+    voiceFinished = true;
+    if (transcriptTimer) { clearTimeout(transcriptTimer); transcriptTimer = null; }
+    if (voiceTimer) { clearInterval(voiceTimer); voiceTimer = null; }
+
+    var secs = ((Date.now() - voiceStart) / 1000).toFixed(1);
+    var wav = {};
+    if (recordingWav) {
+      try { wav = PTBridge.stopRecording() || {}; } catch (e) {}
+      recordingWav = false;
+    }
+
+    var text = (res && res.text) || '';
+    var amount = text ? PTExtract.parseAmount(text) : null;
+    var note = text ? (PTExtract.noteFromSpeech(text) || text) : '';
+
+    var box = el('ptTrx');
+    if (box) {
+      if (text) {
+        box.innerHTML =
+          '<div class="transcript">“' + esc(text) + '”</div>' +
+          '<div class="hint ok">' +
+            (amount != null ? ('₹' + amount) : 'no amount heard') +
+            ' <span class="src">' +
+            (res && res.onDevice === false ? 'system asr' : 'on-device') +
+            (res && res.partial ? ' · partial' : '') + '</span></div>';
+      } else {
+        box.innerHTML =
+          '<div class="hint">recorded ' + secs + 's · 16kHz mono WAV</div>' +
+          '<div class="hint err">' + esc((res && res.error) || 'no transcript') + '</div>' +
+          '<div class="hint">type the amount — the clip is kept with the entry</div>';
+      }
+    }
+
+    if (onResult) {
+      onResult('voice', {
+        amount: amount,
+        note: note || ('voice note ' + secs + 's'),
+        path: wav.path || null,
+        extracted: { ok: !!text, text: text, amount: amount, source: 'android-ondevice-asr' }
+      });
+    }
+    // Leave the transcript readable for a moment, as asked.
+    transcriptTimer = setTimeout(closeSheet, text ? 3000 : 4000);
   }
 
   function esc(s) {

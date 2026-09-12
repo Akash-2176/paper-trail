@@ -1,3 +1,28 @@
+val EXCLUDED_LIBS = setOf(
+            // Offline QNN graph compiler - only needed to BUILD a .bin/.dlc,
+            // never to run one. 87.7MB, the single largest file in the APK.
+            "lib/*/libQnnHtpPrepare.so",
+            // Chipset validation tooling, not an inference dependency.
+            "lib/*/libPlatformValidatorShared.so",
+            // Older Hexagon generations. This device is V81.
+            "lib/*/libQnnHtpV79*.so",
+            "lib/*/libQnnHtpV73*.so",
+            "lib/*/libQnnHtpV75*.so",
+            "lib/*/libQnnNetRunDirectV79*.so",
+            "lib/*/libggml-htp-v73.so",
+            "lib/*/libggml-htp-v75.so",
+            "lib/*/libggml-htp-v79.so",
+            // Profiling/trace readers - developer tooling.
+            "lib/*/libQnnHtpOptraceProfilingReader.so",
+            "lib/*/libQnnChrometraceProfilingReader.so",
+            "lib/*/libQnnHtpProfilingReader.so",
+            // HTA is a superseded accelerator path; we target HTP.
+            "lib/*/libQnnHta*.so",
+            "lib/*/libhta_hexagon_runtime_*.so",
+            "lib/*/libCalculator_skel.so",
+            "lib/*/libcalculator.so"
+)
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -49,7 +74,17 @@ android {
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += "**/*.so"
+            excludes += EXCLUDED_LIBS
         }
+
+        /* Size: the GenieX AAR ships every Hexagon generation and the offline
+         * model-compilation toolchain. The loaner is Hexagon V81 (confirmed at
+         * runtime: only libggml-htp-v81.so is dlopen'd), and we load prebuilt
+         * GGUF rather than compiling graphs on device, so the rest is dead
+         * weight. Nothing here touches model weights or accuracy.
+         *
+         * Re-check this list if qairt/NPU is wired or a different handset is
+         * used - a missing Skel/Stub for the actual chip is a silent failure. */
     }
 }
 

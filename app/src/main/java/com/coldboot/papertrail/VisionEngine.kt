@@ -36,10 +36,28 @@ class VisionEngine(private val ctx: Context) {
         private const val TAG = "PTLAB"
         private const val MODELS = GenieBinding.WEIGHTS_DIR
 
-        /** Kept deliberately blunt: describe, do not compute. */
+        /**
+         * GenieX's own media marker. applyChatTemplate emits this, and the native
+         * pipeline substitutes the encoded image embeddings for it. It is NOT
+         * <|image|> - that belongs to other stacks and is an unknown token here.
+         */
+        private const val MEDIA_TOKEN = "<__media__>"
+
+        /**
+         * Kept deliberately blunt: describe, do not compute (ADR-004).
+         *
+         * "Use only plain English letters and digits" is load-bearing, not style.
+         * GenieX hands token text to JNI as it streams, and a multi-byte character
+         * split across two chunks aborts the PROCESS with "JNI DETECTED ERROR ...
+         * illegal continuation byte" - not a catchable exception. Observed on
+         * device with a rupee sign. Constraining the output to ASCII keeps every
+         * token single-byte, so no character can straddle a chunk boundary.
+         */
         private const val PROMPT =
-            "Read this receipt. List the merchant name and the total amount " +
-            "exactly as printed. Do not calculate anything."
+            "Read this receipt. Write the merchant name and the total amount " +
+            "exactly as printed. Do not calculate anything. " +
+            "Use only plain English letters and digits. " +
+            "Write the currency as Rs, never as a symbol."
     }
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -48,14 +66,38 @@ class VisionEngine(private val ctx: Context) {
     @Volatile private var vlm: VlmWrapper? = null
     @Volatile private var lastError: String? = null
 
-    /** Model file discovery - a VLM needs both weights and an mmproj projector. */
-    private fun modelFile(): File? =
-        File(MODELS).listFiles()
-            ?.firstOrNull { it.name.endsWith(".gguf") && it.name.contains("VL", true) }
+    /**
+     * Model file discovery - a VLM needs both weights and an mmproj projector.
+     *
+     * Prefer Q4_K_M over Q4_0 here. ARCHITECTURE section 4 asks for Q4_0 because
+     * K-quants are not Hexagon-optimised, but that only matters on the qairt/NPU
+     * path; we currently run llama_cpp on CPU, where Q4_0 of this model produced
+     * fluent multilingual garbage while Q4_K_M is the build ggml-org actually
+     * ships and tests. Correct output beats a quantisation we are not yet using
+     * the accelerator for. Revisit when qairt is wired.
+     */
+    private fun modelFile(): File? {
+        val all = File(MODELS).listFiles()
+            ?.filter { it.name.endsWith(".gguf") && it.name.contains("VL", true) &&
+                !it.name.contains("mmproj", true) }
+            ?: return null
+        return all.firstOrNull { it.name.contains("Q4_K", true) }
+            ?: all.firstOrNull()
+    }
 
-    private fun mmprojFile(): File? =
-        File(MODELS).listFiles()
-            ?.firstOrNull { it.name.contains("mmproj", true) }
+    /**
+     * The projector must come from the SAME publisher as the weights - a
+     * ggml-org mmproj against an Unsloth model is a mismatched pair. Prefer a
+     * projector whose name shares the model's quantisation lineage.
+     */
+    private fun mmprojFile(): File? {
+        val all = File(MODELS).listFiles()
+            ?.filter { it.name.contains("mmproj", true) } ?: return null
+        val m = modelFile()?.name?.lowercase() ?: ""
+        val unsloth = m.contains("unsloth")
+        return all.firstOrNull { it.name.contains("unsloth", true) == unsloth }
+            ?: all.firstOrNull()
+    }
 
     fun isReady(): Boolean = vlm != null
 
@@ -69,6 +111,7 @@ class VisionEngine(private val ctx: Context) {
             put("mmproj", p?.name ?: JSONObject.NULL)
             put("mmprojMissing", p == null)
             put("error", lastError ?: JSONObject.NULL)
+            put("crashedLastRun", didCrashLastRun())
         }
     }
 
@@ -147,6 +190,22 @@ class VisionEngine(private val ctx: Context) {
     }
 
     /**
+     * A VLM run that abort()s the process leaves this flag set, because the
+     * process dies before any catch or finally can run. On the next launch its
+     * presence means the last attempt crashed, so we do not try again - one
+     * crash is a bug, a crash loop during a demo is unrecoverable. Cleared only
+     * on a clean completion.
+     */
+    private fun crashMarker(): File = File(ctx.filesDir, "vlm-inflight")
+
+    fun didCrashLastRun(): Boolean = crashMarker().exists()
+
+    /** Allow a deliberate retry after a crash, e.g. from a debug control. */
+    fun clearCrashMarker() {
+        try { crashMarker().delete() } catch (e: Throwable) {}
+    }
+
+    /**
      * Read a receipt image. Calls back with {ok, text, source, ms} or
      * {ok:false, error}. Never throws into the caller.
      */
@@ -167,14 +226,39 @@ class VisionEngine(private val ctx: Context) {
             return
         }
 
+        if (didCrashLastRun()) {
+            // Previous run took the process down mid-inference. Refuse and let
+            // the caller fall back to OCR rather than crash-looping on stage.
+            onDone(
+                JSONObject().put("ok", false)
+                    .put("error", "vlm crashed on the previous attempt, not retrying")
+                    .put("crashed", true)
+            )
+            return
+        }
+
         scope.launch {
             val t0 = System.currentTimeMillis()
+            try { crashMarker().createNewFile() } catch (e: Throwable) {}
             val text = withTimeoutOrNull(timeoutMs) { runVlm(engine, img.absolutePath) }
+            clearCrashMarker()
             val ms = System.currentTimeMillis() - t0
             if (text == null) {
                 onDone(
                     JSONObject().put("ok", false)
                         .put("error", lastError ?: "vlm timed out after ${ms}ms")
+                )
+            } else if (!looksSane(text)) {
+                /* A degraded model streams fluent-looking but unrelated tokens -
+                 * observed as CJK and mixed-script output for an English receipt.
+                 * Handing that to the parser risks a plausible wrong number on
+                 * screen, which ADR-004 treats as worse than no number. Reject it
+                 * and let the caller fall back to OCR. */
+                Log.w(TAG, "vision: rejected non-ASCII-dominant output (${text.length} chars)")
+                onDone(
+                    JSONObject().put("ok", false)
+                        .put("error", "model returned unusable output")
+                        .put("sample", text.take(80))
                 )
             } else {
                 Log.i(TAG, "vision: extracted ${text.length} chars in ${ms}ms")
@@ -184,6 +268,16 @@ class VisionEngine(private val ctx: Context) {
                 )
             }
         }
+    }
+
+    /**
+     * A receipt read in English should be overwhelmingly ASCII. Anything else
+     * means the model is producing noise rather than reading the image.
+     */
+    private fun looksSane(text: String): Boolean {
+        if (text.isBlank()) return false
+        val ascii = text.count { it.code in 32..126 }
+        return ascii.toDouble() / text.length >= 0.85
     }
 
     private suspend fun runVlm(engine: VlmWrapper, imagePath: String): String? {
@@ -197,13 +291,53 @@ class VisionEngine(private val ctx: Context) {
             )
             val messages = arrayOf(msg)
             val cfg = engine.injectMediaPathsToConfig(messages, GenerationConfig())
+            /* Default maxTokens truncated the answer before the TOTAL line, which
+             * is the one line that matters. A receipt transcription is short, so
+             * give it room. */
+            cfg.maxTokens = 320
+            Log.i(
+                TAG, "vision: cfg imageCount=" + cfg.imageCount +
+                    " paths=" + (cfg.imagePaths?.joinToString(",") ?: "none")
+            )
+            if (cfg.imageCount <= 0) {
+                // The image never reached the generation config, so the model
+                // would be answering about nothing. Fail loudly instead.
+                lastError = "image path not injected into config (imageCount=0)"
+                Log.e(TAG, "vision: ${lastError}")
+                return null
+            }
             val templated = engine.applyChatTemplate(messages, null, true)
             val prompt = templated.getOrNull()?.formattedText ?: return null
+
+            /* applyChatTemplate already emits GenieX's own media marker,
+             * <__media__>, which the native pipeline replaces with the encoded
+             * image. Do not insert anything else - an extra <|image|> is an
+             * unknown token to this model and only corrupts the prompt. */
+            if (!prompt.contains(MEDIA_TOKEN)) {
+                lastError = "prompt carries no $MEDIA_TOKEN marker - image would be ignored"
+                Log.e(TAG, "vision: ${lastError}")
+                return null
+            }
+            Log.i(TAG, "vision: prompt head=" + prompt.take(110).replace("\n", "\\n"))
 
             val sb = StringBuilder()
             engine.generateStreamFlow(prompt, cfg).collect { chunk ->
                 when (chunk) {
-                    is LlmStreamResult.Token -> sb.append(chunk.text)
+                    is LlmStreamResult.Token -> {
+                        /* GenieX emits token text straight from native. A multi-byte
+                         * UTF-8 character split across two chunks reaches JNI as a
+                         * half-character and aborts the whole process with
+                         * "JNI DETECTED ERROR ... illegal continuation byte".
+                         * Touching .text is what triggers it, so read it defensively
+                         * and drop the fragment rather than take the app down. */
+                        val piece = try {
+                            chunk.text
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "vision: dropped undecodable token chunk")
+                            null
+                        }
+                        if (piece != null) sb.append(piece)
+                    }
                     is LlmStreamResult.Error -> {
                         lastError = "stream: ${chunk.throwable.message}"
                         Log.e(TAG, "vision: ${lastError}")

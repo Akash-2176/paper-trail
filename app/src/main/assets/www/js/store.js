@@ -78,7 +78,50 @@ var PTStore = (function () {
     return merge(p, { txn: t, confidence: c ? c.confidence : 0, reasons: c ? c.reasons : [], action: 'manual' });
   }
 
+  /* Bounded retention. Storage must stay flat however long the app runs, so the
+   * ledger keeps only the most recent rows. Reconciled records are the product's
+   * output and outlive pending ones. */
+  var MAX_RECONCILED = 200;
+  var MAX_PENDING = 50;
+
+  function trim() {
+    if (reconciled.length > MAX_RECONCILED) {
+      reconciled = reconciled.slice(-MAX_RECONCILED);
+    }
+    if (pending.length > MAX_PENDING) {
+      pending = pending.slice(-MAX_PENDING);
+    }
+  }
+
+  /* Persist to local disk. SMS is deliberately NOT stored - it is re-read from
+   * the provider each launch, and ADR-003 keeps redaction at the source, so
+   * caching it would duplicate personal data for no gain. */
+  function save() {
+    trim();
+    return PTBridge.saveLedger({
+      v: 1,
+      seq: seq,
+      pending: pending,
+      reconciled: reconciled,
+      savedAt: Date.now()
+    });
+  }
+
+  function load() {
+    var d = PTBridge.loadLedger() || {};
+    if (!d || d.v !== 1) return false;
+    pending = Array.isArray(d.pending) ? d.pending : [];
+    reconciled = Array.isArray(d.reconciled) ? d.reconciled : [];
+    seq = Number(d.seq) || (pending.length + reconciled.length + 1);
+    trim();
+    PTBridge.log('store: restored pending=' + pending.length +
+                 ' reconciled=' + reconciled.length);
+    return true;
+  }
+
   return {
+    save: save,
+    load: load,
     addPending: addPending,
     setTxns: setTxns,
     reconcileAll: reconcileAll,
@@ -87,7 +130,13 @@ var PTStore = (function () {
     get pending() { return pending; },
     get txns() { return txns; },
     get reconciled() { return reconciled; },
-    reset: function () { pending = []; txns = []; reconciled = []; seq = 1; }
+    /** In-memory only, for tests. Disk is untouched. */
+    reset: function () { pending = []; txns = []; reconciled = []; seq = 1; },
+    /** Clears memory AND disk, so a wipe survives a restart. */
+    wipe: function () {
+      pending = []; txns = []; reconciled = []; seq = 1;
+      PTBridge.clearLedger();
+    }
   };
 })();
 
