@@ -1,6 +1,7 @@
 package com.coldboot.papertrail
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.webkit.ConsoleMessage
@@ -149,9 +150,58 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The UPI result, interpreted in onActivityResult and held until the page
+     * has been told about it. It cannot be pushed straight into the WebView:
+     * onResume reloads the page, which would discard the event mid-flight.
+     */
+    private var awaitingUpiResult = false
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != UpiIntentLauncher.REQ_PAY) return
+
+        /* Which payment came back? The id is not in the response - UPI apps
+         * echo their own fields, not ours - so it is read from the store,
+         * where exactly one transaction is in flight. This also recovers the
+         * case where our process was killed behind the payment app and this
+         * Activity is a fresh instance. */
+        val txn = UpiStore.inFlight(this)
+        if (txn == null) {
+            Log.w(TAG, "upi: result with no transaction in flight")
+            return
+        }
+
+        val r = UpiIntentLauncher.interpret(resultCode, data)
+        Log.i(TAG, "upi: txn=${txn.id} result=${r.state} code=${resultCode}")
+
+        val updated = UpiStore.update(this, txn.id) {
+            it.state = r.state
+            it.completedAt = System.currentTimeMillis()
+            it.upiTxnId = r.txnId
+            it.upiRefNumber = r.refNumber
+            it.responseCode = r.responseCode
+            it.responseStatus = r.status
+        } ?: txn
+
+        bridge.pendingResult = updated
+        awaitingUpiResult = true
+    }
+
     override fun onResume() {
         super.onResume()
-        // Reload on resume so an edit-push cycle shows up without a relaunch.
+        /* Reload on resume so an edit-push cycle shows up without a relaunch.
+         *
+         * The reload is what makes hot reload work, but it also destroys page
+         * state - so returning from a UPI app cannot rely on anything held in
+         * JS. That is why the result is persisted natively and handed over
+         * through bridge.pendingResult, which the page asks for on boot. The
+         * reload is harmless here precisely because nothing is kept in the
+         * page across the trip. */
+        if (awaitingUpiResult) {
+            awaitingUpiResult = false
+            Log.i(TAG, "upi: resuming with a result waiting for the page")
+        }
         webView.reload()
     }
 

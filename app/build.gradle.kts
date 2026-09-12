@@ -102,6 +102,10 @@ dependencies {
     // ML Kit OCR — receipt path. Offline resolve of this is the gate.
     implementation("com.google.mlkit:text-recognition:16.0.1")
 
+    // ML Kit barcode — UPI QR scanning. Same on-device family as the OCR above,
+    // bundled model, no Play Services download at runtime.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
     // GenieX — on-device inference (NPU via qairt, llama_cpp fallback).
     // 0.4.0 is what is actually in the offline cache; docs say 0.3.1.
     implementation("com.qualcomm.qti:geniex-android:0.4.0")

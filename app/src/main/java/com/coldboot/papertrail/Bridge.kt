@@ -2,6 +2,7 @@ package com.coldboot.papertrail
 
 import android.app.Activity
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -290,6 +291,258 @@ class Bridge(
     /** Observable storage footprint, so growth is measured rather than assumed. */
     @JavascriptInterface
     fun storageUsage(): String = LocalStore.usage(ctx)
+
+    // --- UPI --------------------------------------------------------------
+
+    /**
+     * Start the QR scanner. Camera state arrives as a 'cameraOpen' push;
+     * a detected code arrives as a 'upiQr' push carrying the parse result.
+     *
+     * Parsing happens natively so the product layer never has to reason about
+     * UPI URI syntax - it receives either a payable transaction or a reason it
+     * is not one.
+     */
+    @JavascriptInterface
+    fun startQrScan() {
+        val cam = realCamera
+        if (cam == null) {
+            push("cameraOpen", JSONObject().put("ok", false)
+                .put("error", "no camera").toString())
+            return
+        }
+        val scanner = QrScanner { text ->
+            val parsed = UpiUri.parse(text)
+            /* Pause on the FIRST readable code so the analyser stops firing
+             * while the user decides. An unreadable code leaves scanning live:
+             * pointing at a website QR should not require restarting the
+             * scanner, it should just keep looking. */
+            if (parsed.ok) qr?.paused = true
+            push("upiQr", parsed.toJson().toString())
+        }
+        qr = scanner
+        cam.openWithAnalyzer(scanner) { ok, hasPreview ->
+            push("cameraOpen", JSONObject().put("ok", ok).put("preview", hasPreview)
+                .put("scanning", ok)
+                .put("error", if (ok) JSONObject.NULL else "bind failed").toString())
+        }
+    }
+
+    @JavascriptInterface
+    fun stopQrScan() {
+        qr?.close()
+        qr = null
+        realCamera?.stopAnalyzer()
+        realCamera?.close()
+    }
+
+    /** Re-arm after a rejected or cancelled code, without rebinding the camera. */
+    @JavascriptInterface
+    fun resumeQrScan() {
+        qr?.reset()
+    }
+
+    /** Installed UPI apps, discovered by intent resolution. */
+    @JavascriptInterface
+    fun upiApps(): String = UpiIntentLauncher.availableApps(ctx).toString()
+
+    /**
+     * Create a Paper Trail transaction from a scanned QR, BEFORE any payment.
+     *
+     * The record exists first so that a payment which succeeds while our
+     * process is killed is still attributable afterwards.
+     */
+    @JavascriptInterface
+    fun upiCreateTransaction(qrJson: String, amountStr: String, note: String): String {
+        return try {
+            val parsed = UpiUri.parse(JSONObject(qrJson).optString("raw").ifBlank { null }
+                ?: rebuildUri(JSONObject(qrJson)))
+            if (!parsed.ok) {
+                return JSONObject().put("ok", false)
+                    .put("error", parsed.error ?: "invalid QR").toString()
+            }
+            /* The amount is re-validated here even though the UI collected it.
+             * Client-side state is not authoritative - FEATURE 14 - and this is
+             * the last point before a payment intent is built from it. */
+            val amount = amountStr.toDoubleOrNull()
+            if (amount == null || amount <= 0.0 || amount > 200000.0) {
+                return JSONObject().put("ok", false)
+                    .put("error", "Enter an amount between ₹1 and ₹2,00,000").toString()
+            }
+            // A QR that fixed the amount must be paid at that amount.
+            if (parsed.amountLocked && parsed.amount != null &&
+                Math.abs(parsed.amount - amount) > 0.005
+            ) {
+                return JSONObject().put("ok", false)
+                    .put("error", "This QR has a fixed amount").toString()
+            }
+            val txn = UpiTransaction.fromQr(parsed, amount, note)
+            UpiStore.put(ctx, txn)
+            Log.i(TAG, "upi: created txn=${txn.id} state=${txn.state}")
+            JSONObject().put("ok", true).put("txn", txn.toJson()).toString()
+        } catch (e: Throwable) {
+            Log.e(TAG, "upi: create failed: ${e.message}")
+            JSONObject().put("ok", false).put("error", "Could not prepare payment").toString()
+        }
+    }
+
+    /** Reassemble a upi:// URI from a parsed payload the UI round-tripped. */
+    private fun rebuildUri(o: JSONObject): String {
+        val b = StringBuilder("upi://pay?pa=").append(Uri.encode(o.optString("vpa")))
+        o.optString("payeeName").takeIf { it.isNotBlank() }
+            ?.let { b.append("&pn=").append(Uri.encode(it)) }
+        o.optString("merchantCode").takeIf { it.isNotBlank() }
+            ?.let { b.append("&mc=").append(Uri.encode(it)) }
+        o.optString("refId").takeIf { it.isNotBlank() }
+            ?.let { b.append("&tr=").append(Uri.encode(it)) }
+        o.optString("note").takeIf { it.isNotBlank() }
+            ?.let { b.append("&tn=").append(Uri.encode(it)) }
+        if (!o.isNull("amount")) b.append("&am=").append(o.optDouble("amount"))
+        b.append("&cu=").append(Uri.encode(o.optString("currency", "INR")))
+        return b.toString()
+    }
+
+    /**
+     * Hand the payment to a UPI app. `packageName` empty means show the system
+     * chooser.
+     *
+     * Returns {ok} once the app has been launched - NOT once it has been paid.
+     * The outcome arrives later as a 'upiResult' push.
+     */
+    @JavascriptInterface
+    fun upiPay(txnId: String, packageName: String): String {
+        val act = ctx as? Activity
+            ?: return JSONObject().put("ok", false)
+                .put("error", "no activity").toString()
+        val txn = UpiStore.get(ctx, txnId)
+            ?: return JSONObject().put("ok", false)
+                .put("error", "Payment not found").toString()
+
+        /* Only a freshly created transaction may be launched. Re-launching one
+         * that is already in flight or settled would create a second real
+         * payment against a record that claims to be one. */
+        if (txn.state != UpiState.CREATED) {
+            return JSONObject().put("ok", false)
+                .put("error", "This payment has already been started").toString()
+        }
+
+        val err = UpiIntentLauncher.launch(act, txn, packageName.ifBlank { null })
+        if (err != null) {
+            return JSONObject().put("ok", false).put("error", err).toString()
+        }
+        UpiStore.update(ctx, txnId) {
+            it.state = UpiState.PAYMENT_INITIATED
+            it.initiatedAt = System.currentTimeMillis()
+            it.payerApp = packageName.ifBlank { null }
+        }
+        return JSONObject().put("ok", true).put("state", UpiState.PAYMENT_INITIATED.name)
+            .toString()
+    }
+
+    /** One transaction by id, or null. */
+    @JavascriptInterface
+    fun upiTransaction(id: String): String =
+        (UpiStore.get(ctx, id)?.toJson() ?: JSONObject().put("ok", false)).toString()
+
+    /** Every stored UPI transaction, newest last. The ledger merges these in. */
+    @JavascriptInterface
+    fun upiTransactions(): String {
+        val arr = org.json.JSONArray()
+        UpiStore.all(ctx).forEach { arr.put(it.toJson()) }
+        return arr.toString()
+    }
+
+    /**
+     * A payment whose result the UI has not shown yet.
+     *
+     * The WebView is reloaded on resume, so the result screen cannot rely on
+     * in-page state surviving the trip to the UPI app. On boot the product
+     * layer asks for this and shows the result screen if one is waiting.
+     */
+    @JavascriptInterface
+    fun upiPendingResult(): String {
+        val t = pendingResult ?: return JSONObject().put("ok", false).toString()
+        return JSONObject().put("ok", true).put("txn", t.toJson()).toString()
+    }
+
+    /** Called once the result screen has been shown, so it is not shown twice. */
+    @JavascriptInterface
+    fun upiClearPendingResult() {
+        pendingResult = null
+    }
+
+    /**
+     * Attach what the user said to a transaction.
+     *
+     * The raw text is stored verbatim and unconditionally; the LLM's structured
+     * reading is stored alongside it, never instead of it. If the model is
+     * unavailable or returns nonsense the context is still captured - it is the
+     * user's own words that matter, and interpretation is enrichment.
+     */
+    @JavascriptInterface
+    fun upiAttachContext(txnId: String, text: String, source: String) {
+        val clean = text.trim().take(300)
+        if (clean.isEmpty()) {
+            push("upiContext", JSONObject().put("ok", false)
+                .put("error", "empty context").toString())
+            return
+        }
+        val txn = UpiStore.update(ctx, txnId) {
+            it.contextText = clean
+            it.contextSource = if (source == "voice") "voice" else "text"
+        }
+        if (txn == null) {
+            push("upiContext", JSONObject().put("ok", false)
+                .put("error", "Payment not found").toString())
+            return
+        }
+
+        val engine = llm
+        if (engine == null || !engine.isReady()) {
+            // No model: the words are saved, and that is a complete outcome.
+            push("upiContext", JSONObject().put("ok", true)
+                .put("txn", txn.toJson()).put("structured", false).toString())
+            return
+        }
+        engine.structureContext(clean, txn.payeeName) { r ->
+            val updated = if (r.optBoolean("ok")) {
+                UpiStore.update(ctx, txnId) {
+                    it.purpose = r.optString("purpose").ifBlank { null }
+                    it.contextNote = r.optString("note").ifBlank { null }
+                } ?: txn
+            } else txn
+            push(
+                "upiContext",
+                JSONObject().put("ok", true).put("txn", updated.toJson())
+                    .put("structured", r.optBoolean("ok"))
+                    .put("ms", r.opt("ms") ?: JSONObject.NULL).toString()
+            )
+        }
+    }
+
+    /**
+     * Mark a transaction verified by independent evidence.
+     *
+     * Called by the product layer's reconciliation when a bank SMS corroborates
+     * the payment. Native-side guard: only a SUBMITTED or PENDING payment can
+     * become VERIFIED - nothing may promote a cancelled or failed one.
+     */
+    @JavascriptInterface
+    fun upiMarkVerified(txnId: String, evidence: String): Boolean {
+        val t = UpiStore.update(ctx, txnId) {
+            if (it.state == UpiState.SUBMITTED || it.state == UpiState.PENDING) {
+                it.state = UpiState.VERIFIED
+                it.completedAt = System.currentTimeMillis()
+            }
+        }
+        val ok = t?.state == UpiState.VERIFIED
+        if (ok) Log.i(TAG, "upi: txn=$txnId verified by $evidence")
+        return ok
+    }
+
+    /** Where MainActivity leaves a result the UI has not yet displayed. */
+    @Volatile var pendingResult: UpiTransaction? = null
+
+    private var qr: QrScanner? = null
 
     /** Set by MainActivity once the Activity exists. */
     var realCamera: CameraCapture? = null

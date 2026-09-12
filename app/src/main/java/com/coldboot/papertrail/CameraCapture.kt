@@ -3,6 +3,7 @@ package com.coldboot.papertrail
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -19,6 +20,10 @@ import java.util.Locale
  * CameraX ImageCapture straight to a file. No preview surface - the demo only needs
  * the JPEG on disk and the path back in JS. Completion is async, so the result is
  * pushed to the product layer as a 'capture' event.
+ *
+ * The same binding also carries an optional ImageAnalysis use case for QR
+ * scanning. One camera binding, two jobs: binding a second provider for the
+ * scanner would fight this one for the sensor.
  */
 class CameraCapture(private val act: AppCompatActivity) {
 
@@ -30,6 +35,16 @@ class CameraCapture(private val act: AppCompatActivity) {
     private var imageCapture: ImageCapture? = null
     private var bound = false
     private var provider: ProcessCameraProvider? = null
+
+    /**
+     * Set before open() to attach a frame analyser (QR scanning). Changing it
+     * requires a rebind, which [scanning] handles.
+     */
+    private var analyzer: ImageAnalysis.Analyzer? = null
+    private var analysis: ImageAnalysis? = null
+
+    /** True while the QR analyser is attached to the binding. */
+    val scanning: Boolean get() = analyzer != null
 
     /**
      * Optional viewfinder. The WebView sits on top with a transparent hole
@@ -52,16 +67,28 @@ class CameraCapture(private val act: AppCompatActivity) {
                     .build()
                 p.unbindAll()
 
-                val pv = previewView
-                if (pv != null) {
-                    val preview = Preview.Builder().build()
-                    preview.surfaceProvider = pv.surfaceProvider
-                    p.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, preview, ic)
-                    Log.i(TAG, "camera: bound with preview")
-                } else {
-                    p.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, ic)
-                    Log.i(TAG, "camera: bound (no preview)")
+                /* Analysis runs only while a QR scan is active. STRATEGY_KEEP_
+                 * ONLY_LATEST matters: the detector is slower than the sensor,
+                 * and a backpressure queue would make the viewfinder lag behind
+                 * what the user is pointing at. */
+                val an = analyzer?.let { a ->
+                    ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { it.setAnalyzer(ContextCompat.getMainExecutor(act), a) }
                 }
+                analysis = an
+
+                val uses = listOfNotNull(
+                    previewView?.let { pv ->
+                        Preview.Builder().build().also { it.surfaceProvider = pv.surfaceProvider }
+                    },
+                    ic,
+                    an
+                ).toTypedArray()
+
+                p.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, *uses)
+                Log.i(TAG, "camera: bound preview=${previewView != null} scan=${an != null}")
                 imageCapture = ic
                 bound = true
                 onReady(true)
@@ -78,20 +105,53 @@ class CameraCapture(private val act: AppCompatActivity) {
     }
 
     /**
+     * Start the viewfinder with a frame analyser attached (QR scanning).
+     *
+     * Forces a rebind: CameraX use cases are fixed at bind time, so an already
+     * bound session has no analysis pipeline to add one to.
+     */
+    fun openWithAnalyzer(a: ImageAnalysis.Analyzer, onReady: (Boolean, Boolean) -> Unit) {
+        act.runOnUiThread {
+            analyzer = a
+            unbind()
+            ensureBound { ok -> onReady(ok, ok && previewView != null) }
+        }
+    }
+
+    /** Detach the analyser but leave the camera available for stills. */
+    fun stopAnalyzer() {
+        act.runOnUiThread {
+            if (analyzer == null) return@runOnUiThread
+            analyzer = null
+            try { analysis?.clearAnalyzer() } catch (e: Exception) { }
+            analysis = null
+            unbind()
+        }
+    }
+
+    /** Main-thread unbind. CameraX requires it; callers arrive from JS threads. */
+    private fun unbind() {
+        try {
+            provider?.unbindAll()
+            bound = false
+            imageCapture = null
+        } catch (e: Exception) {
+            Log.e(TAG, "camera: unbind failed: ${e.message}")
+        }
+    }
+
+    /**
      * Release the sensor. Leaving it bound keeps the camera hot.
      * CameraX requires unbind on the main thread, and this is called from the
      * WebView's JS thread, so hop explicitly.
      */
     fun close() {
         act.runOnUiThread {
-            try {
-                provider?.unbindAll()
-                bound = false
-                imageCapture = null
-                Log.i(TAG, "camera: released")
-            } catch (e: Exception) {
-                Log.e(TAG, "camera: release failed: ${e.message}")
-            }
+            try { analysis?.clearAnalyzer() } catch (e: Exception) { }
+            analyzer = null
+            analysis = null
+            unbind()
+            Log.i(TAG, "camera: released")
         }
     }
 

@@ -10,6 +10,21 @@
 
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!--
+      Android 11+ package visibility. Without this, queryIntentActivities for
+      upi://pay returns an empty list even when GPay/PhonePe/Paytm are installed,
+      and the app would tell the user no UPI app exists.
+
+      Declared by INTENT, not by package name: any compliant UPI app matches, so
+      bank and regional apps work without being enumerated here.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" android:host="pay" />
+        </intent>
+    </queries>
+
     <application
         android:extractNativeLibs="true"
         android:label="Paper Trail"

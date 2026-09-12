@@ -369,6 +369,100 @@ class LlmEngine(private val ctx: Context) {
         }
     }
 
+    /**
+     * Turn what a person said about a payment into structured context.
+     *
+     * "This was for the client meeting with Arun" -> purpose "client meeting",
+     * note "meeting with Arun". That is a language task, which is what this
+     * model is for.
+     *
+     * ADR-004 applies with full force here, and the stakes are higher than in
+     * classification: this runs immediately after a real payment, so a model
+     * that invented an amount or a payee would be corrupting a financial
+     * record. The output schema therefore contains NO monetary or party fields
+     * at all - purpose and note only - and [parseContext] discards anything
+     * else the model emits. The amount, VPA and payee name are already known
+     * from the QR and the UPI response, and are never revisited here.
+     */
+    fun structureContext(
+        spoken: String,
+        merchant: String,
+        timeoutMs: Long = 10_000,
+        onDone: (JSONObject) -> Unit
+    ) {
+        val engine = llm
+        if (engine == null) {
+            onDone(JSONObject().put("ok", false).put("error", lastError ?: "llm not loaded"))
+            return
+        }
+        scope.launch {
+            val t0 = System.currentTimeMillis()
+            val sys =
+                "/no_think\n" +
+                "A person just paid a merchant and said why. Summarise it.\n" +
+                "Output ONE line of JSON, nothing else.\n" +
+                "Fields: purpose, note.\n" +
+                "purpose = 2-4 word category, lowercase.\n" +
+                "note = the specific detail, or \"\" if there is none.\n" +
+                "Never output an amount, a name of a payment app, or a UPI id.\n" +
+                "No explanation. No markdown.\n" +
+                "Examples:\n" +
+                "client meeting with Arun -> " +
+                "{\"purpose\":\"client meeting\",\"note\":\"with Arun\"}\n" +
+                "bought components for the college project -> " +
+                "{\"purpose\":\"college project\",\"note\":\"components\"}\n" +
+                "just lunch -> {\"purpose\":\"lunch\",\"note\":\"\"}"
+            val user = if (merchant.isNotBlank()) {
+                "MERCHANT: $merchant\nTHEY SAID: $spoken\nJSON:"
+            } else {
+                "THEY SAID: $spoken\nJSON:"
+            }
+
+            val raw = withTimeoutOrNull(timeoutMs) { runChat(engine, sys, user, 128) }
+            val ms = System.currentTimeMillis() - t0
+            if (raw == null) {
+                onDone(JSONObject().put("ok", false).put("error", "context timed out"))
+                return@launch
+            }
+            val parsed = parseContext(raw)
+            if (parsed == null) {
+                Log.w(TAG, "llm: context unparseable -> " + raw.take(120))
+                onDone(JSONObject().put("ok", false).put("error", "unparseable model output"))
+            } else {
+                Log.i(TAG, "llm: context structured in ${ms}ms on $computeUnit")
+                onDone(parsed.put("ok", true).put("ms", ms).put("computeUnit", computeUnit))
+            }
+        }
+    }
+
+    /**
+     * Keep purpose and note, drop everything else.
+     *
+     * A model that returns {"purpose":"lunch","amount":500} must not have that
+     * amount reach a transaction record, so fields are copied out by name
+     * rather than the object being passed through.
+     */
+    private fun parseContext(raw: String): JSONObject? {
+        val cleaned = raw.replace(Regex("(?s)<think>.*?</think>"), "")
+            .replace(Regex("(?s)<think>.*"), "")
+        val start = cleaned.indexOf('{')
+        val end = cleaned.indexOf('}', start)
+        if (start < 0 || end <= start) return null
+        return try {
+            val o = JSONObject(cleaned.substring(start, end + 1))
+            val purpose = o.optString("purpose", "").trim().take(40)
+            val note = o.optString("note", "").trim().take(80)
+            // A result with no purpose is not worth persisting over the raw text.
+            if (purpose.isBlank()) return null
+            /* Reject a "purpose" that is just a number the model echoed. The
+             * schema forbids amounts; this is the backstop that enforces it. */
+            if (purpose.all { it.isDigit() || it == '.' || it == ',' }) return null
+            JSONObject().put("purpose", purpose).put("note", note)
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
     /** Strip reasoning blocks and keep the first real sentence or two. */
     private fun cleanAnswer(raw: String): String? {
         var t = raw.replace(Regex("(?s)<think>.*?</think>"), "")
