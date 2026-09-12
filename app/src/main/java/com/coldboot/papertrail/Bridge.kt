@@ -251,6 +251,22 @@ class Bridge(
         e.classify(text) { result -> push("intent", result.toString()) }
     }
 
+    /**
+     * RAG: answer a question from ledger rows the product layer retrieved.
+     * The caller computes every figure; the model only phrases the answer and
+     * is instructed to say so when the records do not contain one.
+     */
+    @JavascriptInterface
+    fun answerFromContext(question: String, context: String) {
+        val e = llm
+        if (e == null) {
+            push("answer", JSONObject().put("ok", false)
+                .put("error", "no llm engine").toString())
+            return
+        }
+        e.answerFromContext(question, context) { r -> push("answer", r.toString()) }
+    }
+
     /** Re-scan for a bundle pushed after launch, without a restart. */
     @JavascriptInterface
     fun llmReload() { llm?.reload() }

@@ -257,6 +257,20 @@ var PTBridge = (function () {
     }, 8000);
   }
 
+  /* RAG. The caller retrieves and totals the rows; the model phrases the
+   * answer from that grounded context and nothing else. */
+  function answerFromContext(question, context, cb) {
+    if (!llmAvailable()) { cb({ ok: false, error: 'no llm' }); return; }
+    window.__ptAnswerCb = cb;
+    safe(function () { native.answerFromContext(question, context); });
+    setTimeout(function () {
+      if (window.__ptAnswerCb === cb) {
+        window.__ptAnswerCb = null;
+        cb({ ok: false, error: 'answer timed out' });
+      }
+    }, 16000);
+  }
+
   function simulateSmsChange() {
     if (isDevice && native.simulateSmsChange) safe(function () { native.simulateSmsChange(); });
   }
@@ -273,6 +287,7 @@ var PTBridge = (function () {
     llmStatus: llmStatus,
     llmReload: llmReload,
     classifyIntent: classifyIntent,
+    answerFromContext: answerFromContext,
     startListening: startListening,
     stopListening: stopListening,
     cancelListening: cancelListening,

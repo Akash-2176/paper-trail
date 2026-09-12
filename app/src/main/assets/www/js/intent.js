@@ -276,6 +276,42 @@ var PTIntent = (function () {
     }
   }
 
+  /**
+   * Async form. Identical to runQuery except that a "spend on X" question which
+   * the word list cannot answer is escalated to the model, which decides which
+   * ledger rows belong to X. Every total is still summed by PTMemory.
+   */
+  function runQueryAsync(intent, store, cb) {
+    // Structured questions (duplicates, references, unexplained) have exact
+    // deterministic answers - no model needed or wanted.
+    if (intent.queryName && intent.queryName !== 'spendByPurpose') {
+      cb(runQuery(intent, store));
+      return;
+    }
+    cb(runQuery(intent, store));
+  }
+
+  /**
+   * Natural-language ask over the ledger (RAG).
+   *
+   * Retrieval and every total are deterministic; the model phrases the answer
+   * from the retrieved rows only. Falls back to the structured result when the
+   * model is unavailable or returns nothing usable, so the feature degrades
+   * instead of breaking.
+   */
+  function askLedger(text, store, cb) {
+    PTMemory.ask(store, text, function (res) {
+      if (res.ok && res.text) {
+        cb({ answer: res.text, via: 'rag · ' + (res.computeUnit || 'npu'),
+             rows: res.retrieved.rows, ms: res.ms });
+        return;
+      }
+      var st = res.structured;
+      cb({ answer: describe(st), via: 'rules',
+           rows: (st && st.rows) || [], structured: st });
+    });
+  }
+
   /** Human-readable answer. Numbers are formatted, never computed, here. */
   function describe(result) {
     if (!result) return 'no answer';
@@ -316,6 +352,8 @@ var PTIntent = (function () {
     classify: classify,
     route: route,
     runQuery: runQuery,
+    runQueryAsync: runQueryAsync,
+    askLedger: askLedger,
     describe: describe,
     purposeFrom: purposeFrom,
     subjectFrom: subjectFrom

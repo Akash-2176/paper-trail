@@ -434,6 +434,26 @@
   }
 
   // --- Unified Smart Input Handler -----------------------------
+  /** Shared row list under an answer, so every result looks the same. */
+  function rowsHtml(rows) {
+    if (!rows || !rows.length) return '';
+    var h = '<div class="rows">';
+    for (var i = 0; i < Math.min(4, rows.length); i++) {
+      var r = rows[i];
+      h += '• ' + money(r.amount) + ' — ' +
+           esc(r.purpose || r.note || r.merchant || 'spend') +
+           (r.ref ? ' (ref ' + esc(r.ref) + ')' : '') + '<br>';
+    }
+    if (rows.length > 4) h += '...and ' + (rows.length - 4) + ' more';
+    return h + '</div>';
+  }
+
+  /** The "Thinking..." bubble is removed when the real answer lands. */
+  function removePending() {
+    var p = document.querySelector('.chatLlm.pending');
+    if (p) p.parentNode.removeChild(p);
+  }
+
   function handleSmartInput(text) {
     if (!text) return;
     appendChat(esc(text), 'user');
@@ -442,21 +462,29 @@
       PTBridge.log('route intent=' + res.intent + ' via=' + res.via + ' q=' + (res.queryName || '-'));
 
       if (res.intent === 'query') {
-        var ans = PTIntent.runQuery(res, PTStore);
-        var dup = ans.query === 'didIPayTwice' && ans.count > 0;
-        var html = '<div class="q">Query Result • ' + esc(res.via) + '</div>';
-        html += '<div class="a">' + esc(PTIntent.describe(ans)) + '</div>';
-        
-        if (ans.rows && ans.rows.length > 0) {
-          html += '<div class="rows">';
-          for(var i = 0; i < Math.min(4, ans.rows.length); i++) {
-             var r = ans.rows[i];
-             html += '• ' + money(r.amount) + ' — ' + esc(r.merchant || r.purpose || 'spend') + (r.ref ? ' (ref ' + esc(r.ref) + ')' : '') + '<br>';
-          }
-          if(ans.rows.length > 4) html += '...and ' + (ans.rows.length - 4) + ' more';
-          html += '</div>';
+        /* Free-form questions go through RAG: deterministic retrieval and
+         * totalling, then the model phrases the answer from those rows only.
+         * Structured questions (duplicates, references, unexplained) keep their
+         * exact deterministic answers. */
+        if (res.queryName && res.queryName !== 'spendByPurpose') {
+          var ans = PTIntent.runQuery(res, PTStore);
+          var dup = ans.query === 'didIPayTwice' && ans.count > 0;
+          var h = '<div class="q">Query Result</div>';
+          h += '<div class="a">' + esc(PTIntent.describe(ans)) + '</div>';
+          h += rowsHtml(ans.rows);
+          appendChat(h, 'llm', dup ? 'dupWarn' : '');
+          return;
         }
-        appendChat(html, 'llm', dup ? 'dupWarn' : '');
+
+        appendChat('<div class="q">Thinking…</div>', 'llm', 'pending');
+        PTIntent.askLedger(text, PTStore, function (a) {
+          removePending();
+          var h = '<div class="q">Answer • ' + esc(a.via) +
+                  (a.ms ? ' · ' + a.ms + 'ms' : '') + '</div>';
+          h += '<div class="a">' + esc(a.answer) + '</div>';
+          h += rowsHtml(a.rows);
+          appendChat(h, 'llm');
+        });
 
       } else if (res.intent === 'capture') {
         var amt = res.amount;
@@ -548,8 +576,10 @@
   // Voice/Photo Callbacks
   PTCapture.onIntent(function(intent, text) {
     if (intent.intent === 'query') {
-      var result = PTIntent.runQuery(intent, PTStore);
-      appendChat('<div class="q">Voice Query</div><div class="a">' + esc(PTIntent.describe(result)) + '</div>', 'llm');
+      PTIntent.runQueryAsync(intent, PTStore, function (result) {
+        appendChat('<div class="q">Voice Query</div><div class="a">' +
+          esc(PTIntent.describe(result)) + '</div>', 'llm');
+      });
     } else if (intent.purpose) {
       handleSmartInput(text);
     }
@@ -606,7 +636,12 @@
         if (window.__ptTranscriptCb) { var tc = window.__ptTranscriptCb; window.__ptTranscriptCb = null; tc(t); }
         return;
       }
-      if (name === 'intent') {
+      if (name === 'answer') {
+    var ar = PTBridge.asObj(payload, { ok: false });
+    if (window.__ptAnswerCb) { var ac = window.__ptAnswerCb; window.__ptAnswerCb = null; ac(ar); }
+    return;
+  }
+  if (name === 'intent') {
         var ir = PTBridge.asObj(payload, { ok: false });
         if (window.__ptIntentCb) { var ic = window.__ptIntentCb; window.__ptIntentCb = null; ic(ir); }
         return;

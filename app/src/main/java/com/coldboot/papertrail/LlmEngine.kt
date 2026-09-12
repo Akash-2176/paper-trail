@@ -302,6 +302,78 @@ class LlmEngine(private val ctx: Context) {
      * ms, computeUnit} or {ok:false, error}. Never throws into the caller, and
      * never returns a number.
      */
+    /**
+     * RAG over the ledger: the model is given the actual rows as context and
+     * answers the question from them.
+     *
+     * This replaces an index-selection scheme that asked the model which items
+     * belonged to a category. That misfired in ways that matter - it copied
+     * digits out of its own few-shot example, and it answered "stationery"
+     * against a ledger containing none - so a total could silently include an
+     * unrelated payment.
+     *
+     * Retrieval is deterministic and happens in the product layer: the caller
+     * decides which rows are relevant and how much money they represent. The
+     * model receives that grounded context and only phrases the answer, and is
+     * told plainly to say so when the context does not contain one. It cannot
+     * invent a row it was not given.
+     *
+     * ADR-004 holds: every figure in `context` was computed by code before the
+     * model saw it.
+     */
+    fun answerFromContext(
+        question: String,
+        context: String,
+        timeoutMs: Long = 15_000,
+        onDone: (JSONObject) -> Unit
+    ) {
+        val engine = llm
+        if (engine == null) {
+            onDone(JSONObject().put("ok", false).put("error", lastError ?: "llm not loaded"))
+            return
+        }
+        scope.launch {
+            val t0 = System.currentTimeMillis()
+            val sys =
+                "/no_think\n" +
+                "You answer questions about a spending ledger.\n" +
+                "Use ONLY the RECORDS given. Never invent a payment.\n" +
+                "Never add up numbers yourself - totals are already provided.\n" +
+                "Answer in ONE short sentence, plain English, no markdown.\n" +
+                "If the records do not answer the question, say so plainly."
+            val user = "RECORDS:\n" + context + "\n\nQUESTION: " + question + "\nANSWER:"
+
+            val raw = withTimeoutOrNull(timeoutMs) { runChat(engine, sys, user, 160) }
+            val ms = System.currentTimeMillis() - t0
+            if (raw == null) {
+                onDone(JSONObject().put("ok", false).put("error", "answer timed out"))
+                return@launch
+            }
+            val text = cleanAnswer(raw)
+            if (text.isNullOrBlank()) {
+                Log.w(TAG, "llm: answer unusable -> " + raw.take(120))
+                onDone(JSONObject().put("ok", false).put("error", "no usable answer"))
+            } else {
+                Log.i(TAG, "llm: answered in ${ms}ms on $computeUnit")
+                onDone(
+                    JSONObject().put("ok", true).put("text", text)
+                        .put("ms", ms).put("computeUnit", computeUnit)
+                )
+            }
+        }
+    }
+
+    /** Strip reasoning blocks and keep the first real sentence or two. */
+    private fun cleanAnswer(raw: String): String? {
+        var t = raw.replace(Regex("(?s)<think>.*?</think>"), "")
+            .replace(Regex("(?s)<think>.*"), "")
+            .replace(Regex("[*_`#]"), "")
+            .trim()
+        if (t.isBlank()) return null
+        // Guard against a runaway generation: keep it to a short answer.
+        if (t.length > 400) t = t.substring(0, 400)
+        return t.lines().filter { it.isNotBlank() }.take(3).joinToString(" ").trim()
+    }
     fun classify(text: String, timeoutMs: Long = 12_000, onDone: (JSONObject) -> Unit) {
         val engine = llm
         if (engine == null) {
@@ -340,7 +412,16 @@ class LlmEngine(private val ctx: Context) {
         }
     }
 
-    private suspend fun run(engine: LlmWrapper, text: String): String? {
+    private suspend fun run(engine: LlmWrapper, text: String): String? =
+        runChat(engine, SYSTEM, text, 256)
+
+    /** One generation with an explicit system prompt. Shared by every LLM task. */
+    private suspend fun runChat(
+        engine: LlmWrapper,
+        system: String,
+        user: String,
+        maxTokens: Int
+    ): String? {
         return try {
             /* Clear the KV cache between classifications.
              *
@@ -353,8 +434,8 @@ class LlmEngine(private val ctx: Context) {
                 Log.w(TAG, "llm: reset failed: " + e.message)
             }
             val messages = arrayOf(
-                ChatMessage("system", SYSTEM),
-                ChatMessage("user", text)
+                ChatMessage("system", system),
+                ChatMessage("user", user)
             )
             val templated = engine.applyChatTemplate(messages, null, true, false)
             val prompt = templated.getOrNull()?.formattedText ?: return null
@@ -366,7 +447,7 @@ class LlmEngine(private val ctx: Context) {
              * and that costs tokens before the JSON starts. At 96 the answer was
              * being truncated mid-think, leaving "<think>" as the whole reply.
              * 256 leaves room for the block plus one JSON object. */
-            cfg.maxTokens = 256
+            cfg.maxTokens = maxTokens
 
             val sb = StringBuilder()
             engine.generateStreamFlow(prompt, cfg).collect { chunk ->

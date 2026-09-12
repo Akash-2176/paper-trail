@@ -463,7 +463,184 @@ var PTMemory = (function () {
     return false;
   }
 
+  /* ---------------------------------------------------------------------
+   * RAG retrieval
+   *
+   * Deterministic code retrieves and totals; the model only phrases the answer
+   * from what it was given. This replaced a semantic index-selection scheme
+   * that let the model choose rows - it copied digits from its own example and
+   * matched categories the ledger did not contain, so totals silently included
+   * unrelated payments.
+   * ------------------------------------------------------------------- */
+
+  /** Score a row against the question. Higher is more relevant. */
+  /**
+   * Which category does this word belong to?
+   *
+   * A term can be the category NAME ("food") or one of its MEMBERS
+   * ("vegetable", which lives inside food). Only checking names meant
+   * "vegetables" scored zero against a ledger full of tomato, because
+   * `vegetable` is a member of food rather than a key of CATEGORIES.
+   */
+  function categoryOf(term) {
+    if (!term) return null;
+    if (SYNONYMS[term]) return SYNONYMS[term];
+    if (CATEGORIES[term]) return term;
+    for (var k in CATEGORIES) {
+      if (!Object.prototype.hasOwnProperty.call(CATEGORIES, k)) continue;
+      if (CATEGORIES[k].indexOf(term) >= 0) return k;
+    }
+    return null;
+  }
+
+  function relevance(rec, terms) {
+    var hay = (norm(rec.purpose) + ' ' + norm(rec.note) + ' ' +
+               norm(rec.merchant));
+    var score = 0;
+    for (var i = 0; i < terms.length; i++) {
+      var t = terms[i];
+      if (!t) continue;
+      if (hay.indexOf(t) >= 0) score += 3;
+      var cat = categoryOf(t);
+      if (cat && CATEGORIES[cat]) {
+        for (var j = 0; j < CATEGORIES[cat].length; j++) {
+          if (hay.indexOf(CATEGORIES[cat][j]) >= 0) { score += 2; break; }
+        }
+      }
+    }
+    return score;
+  }
+
+  var STOPWORDS = ['the','and','for','what','how','much','was','are','is','my',
+    'on','in','at','to','did','do','i','spent','spend','total','about','of',
+    'a','an','me','show','tell','all','any'];
+
+  /**
+   * Retrieve rows for a question and render them as grounded context.
+   *
+   * Relevant rows first; if nothing scores, the most recent rows are sent so
+   * the model can answer "the records do not show that" truthfully instead of
+   * guessing from an empty page. Amounts are computed HERE.
+   */
+  /** Questions about everything, where no term should narrow the ledger. */
+  var WHOLE_LEDGER = /(?:total|altogether|overall|in all|everything|all my|so far|this month|today)/i;
+
+  function retrieve(store, question, limit) {
+    var all = allRecords(store).filter(function (r) {
+      return r.direction !== 'credit';
+    });
+    if (!all.length) {
+      return { rows: [], total: 0, matched: false,
+               context: 'RECORDS: none. The ledger is empty.' };
+    }
+
+    var terms = norm(question).split(' ').filter(function (w) {
+      return w.length > 2 && STOPWORDS.indexOf(w) < 0;
+    });
+
+    /* Expand a plural or synonym to its category stem before scoring, so
+     * "vegetables" reaches the food vocabulary that contains "tomato". The
+     * model is not reliable at inferring that a tomato is a vegetable from a
+     * bare list, and it does not have to be: category membership is a lookup,
+     * and ADR-004 keeps that kind of work in code. */
+    var expanded = terms.slice();
+    terms.forEach(function (t) {
+      /* Try BOTH plural forms. A single /(?:es|s)$/ turned "vegetables" into
+       * "vegetabl" - the "es" branch won - so it never reached the "vegetable"
+       * entry in the food vocabulary and the query scored zero. */
+      if (/s$/.test(t)) expanded.push(t.slice(0, -1));        // vegetables -> vegetable
+      if (/es$/.test(t)) expanded.push(t.slice(0, -2));       // boxes -> box
+    });
+    terms = expanded.filter(function (t) { return t && t.length > 2; });
+
+    /* "how much did I spend in total" is about the whole ledger, not about the
+     * word "total". Without this it scored zero against every row and the model
+     * was handed a page headed "no payment matched", then answered from one
+     * arbitrary line. */
+    var wholeLedger = WHOLE_LEDGER.test(question) || terms.length === 0;
+
+    var chosen, matched;
+    if (wholeLedger) {
+      chosen = all.slice().sort(function (a, b) { return b.ts - a.ts; });
+      matched = true;
+    } else {
+      var scored = all.map(function (r) { return { r: r, s: relevance(r, terms) }; });
+      var hits = scored.filter(function (x) { return x.s > 0; });
+      matched = hits.length > 0;
+      chosen = (matched ? hits : scored)
+        .sort(function (a, b) {
+          return matched ? (b.s - a.s || b.r.ts - a.r.ts) : (b.r.ts - a.r.ts);
+        })
+        .map(function (x) { return x.r; });
+    }
+    chosen = chosen.slice(0, limit || 12);
+
+    var total = chosen.reduce(function (sum, r) { return sum + r.amount; }, 0);
+
+    var lines = chosen.map(function (r) {
+      var when = new Date(r.ts).toLocaleDateString('en-IN',
+        { day: 'numeric', month: 'short' });
+      return '- Rs ' + r.amount + ' | ' +
+             (r.purpose || r.note || r.merchant || 'unlabelled') +
+             (r.merchant && r.merchant !== r.note ? ' | at ' + r.merchant : '') +
+             ' | ' + when;
+    });
+
+    /* Never tell the model "nothing matched" while also showing it rows - it
+     * obeyed the sentence and ignored the data, answering "no payment matched"
+     * about a list containing two tomato entries. State the facts; let the
+     * model judge relevance from the rows themselves. */
+    var header = 'These are the recorded payments (' + chosen.length +
+                 (wholeLedger || matched
+                   ? '), combined total Rs ' + total + ':'
+                   : ', shown for reference), combined total Rs ' + total + ':');
+
+    return {
+      rows: chosen,
+      total: total,
+      matched: matched,
+      wholeLedger: wholeLedger,
+      context: header + '\n' + lines.join('\n')
+    };
+  }
+
+  /**
+   * Ask the ledger in natural language.
+   *
+   * 1. deterministic retrieval + totalling (here)
+   * 2. the model phrases an answer from ONLY those rows
+   * 3. if the model is unavailable or unusable, fall back to the structured
+   *    query, so the feature degrades to the old behaviour rather than failing
+   */
+  function ask(store, question, cb) {
+    var ctx = retrieve(store, question, 12);
+    var fallback = spendByPurpose(store, question);
+
+    if (!PTBridge.llmAvailable || !PTBridge.llmAvailable() || !ctx.rows.length) {
+      cb({ ok: false, via: 'rules', structured: fallback, retrieved: ctx });
+      return;
+    }
+
+    PTBridge.answerFromContext(question, ctx.context, function (res) {
+      if (!res || !res.ok || !res.text) {
+        cb({ ok: false, via: 'rules', structured: fallback, retrieved: ctx });
+        return;
+      }
+      cb({
+        ok: true,
+        via: 'rag',
+        text: res.text,
+        ms: res.ms,
+        computeUnit: res.computeUnit,
+        retrieved: ctx,
+        structured: fallback
+      });
+    });
+  }
+
   return {
+    ask: ask,
+    retrieve: retrieve,
     // the five structured queries
     whereDidIBuy: whereDidIBuy,
     didIPayTwice: didIPayTwice,
