@@ -54,13 +54,29 @@ class LlmEngine(private val ctx: Context) {
          * re-validates whatever comes back and re-parses money with code, so a
          * hallucinated field cannot reach the ledger.
          */
+        /**
+         * Intent classification prompt.
+         *
+         * Qwen3 is a reasoning model: left to itself it emits a <think> block
+         * and prose around the answer, which is why two of three probe
+         * utterances came back "unparseable". So: no reasoning, one line, and a
+         * worked example of each label. Few-shot beats instructions on a 1.7B.
+         */
         private const val SYSTEM =
-            "You label short expense utterances. Reply with ONE JSON object and " +
-            "nothing else. Schema: {\"intent\":\"capture|context|query\"," +
-            "\"purpose\":\"<short label or empty>\",\"subject\":\"<topic or empty>\"}. " +
-            "capture = recording a new spend. context = labelling what a spend was for. " +
-            "query = asking a question about past spending. " +
-            "Never include an amount or any number. Use plain English letters only."
+            "/no_think\n" +
+            "Classify an expense utterance. Output ONE line of JSON, nothing else.\n" +
+            "Fields: intent (capture|context|query), purpose, subject.\n" +
+            "capture = states a new spend with an amount.\n" +
+            "context = says what a spend was for, no amount.\n" +
+            "query = asks a question about past spending.\n" +
+            "Never output a number. No explanation. No markdown.\n" +
+            "Examples:\n" +
+            "three hundred for petrol -> " +
+            "{\"intent\":\"capture\",\"purpose\":\"petrol\",\"subject\":\"\"}\n" +
+            "this is for my college project -> " +
+            "{\"intent\":\"context\",\"purpose\":\"college project\",\"subject\":\"\"}\n" +
+            "how much did I spend on tomato -> " +
+            "{\"intent\":\"query\",\"purpose\":\"\",\"subject\":\"tomato\"}"
     }
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -299,6 +315,9 @@ class LlmEngine(private val ctx: Context) {
             }
             val parsed = parse(raw)
             if (parsed == null) {
+                // Keep the raw text when parsing fails: guessing at prompt
+                // problems without seeing the output wastes attempts.
+                Log.w(TAG, "llm: unparseable -> " + raw.take(180))
                 onDone(
                     JSONObject().put("ok", false)
                         .put("error", "unparseable model output")
@@ -323,7 +342,9 @@ class LlmEngine(private val ctx: Context) {
             val cfg = GenerationConfig()
             // An intent label is a handful of tokens; a long budget only invites
             // the model to keep talking after the JSON is closed.
-            cfg.maxTokens = 64
+            // Enough for one JSON line; a larger budget only invites the model
+            // to keep talking after the object is closed.
+            cfg.maxTokens = 96
 
             val sb = StringBuilder()
             engine.generateStreamFlow(prompt, cfg).collect { chunk ->
@@ -357,11 +378,16 @@ class LlmEngine(private val ctx: Context) {
      * is not permitted to influence money (ADR-004).
      */
     private fun parse(raw: String): JSONObject? {
-        val start = raw.indexOf('{')
-        val end = raw.lastIndexOf('}')
+        /* Qwen3 is a reasoning model and may still emit a <think> block despite
+         * /no_think. Drop it before looking for JSON, or the first '{' found
+         * could be inside the reasoning rather than the answer. */
+        val cleaned = raw.replace(Regex("(?s)<think>.*?</think>"), "")
+            .replace(Regex("(?s)<think>.*"), "")
+        val start = cleaned.indexOf('{')
+        val end = cleaned.indexOf('}', start)
         if (start < 0 || end <= start) return null
         return try {
-            val o = JSONObject(raw.substring(start, end + 1))
+            val o = JSONObject(cleaned.substring(start, end + 1))
             val intent = o.optString("intent", "").lowercase().trim()
             if (intent != "capture" && intent != "context" && intent != "query") return null
             JSONObject()
