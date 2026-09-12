@@ -26,6 +26,9 @@ class Bridge(
     companion object {
         private const val TAG = "PTLAB"
         const val NAME = "PT"
+
+        /** Below this, OCR found too little to trust and the VLM is worth the wait. */
+        private const val OCR_MIN_CHARS = 40
     }
 
     // --- JS -> native -----------------------------------------------------
@@ -110,15 +113,46 @@ class Bridge(
     @JavascriptInterface
     fun visionExtract(path: String) {
         val v = vision
-        // VLM first when it is genuinely loaded; otherwise ML Kit OCR, which
-        // runs on-device with no download and no missing projector.
-        if (v != null && v.isReady()) {
-            v.extract(path) { result ->
-                if (result.optBoolean("ok")) push("vision", result.toString())
-                else runOcr(path, result.optString("error", "vlm failed"))
+        // Downscale once, up front. A raw 12MP capture exceeds the VLM's context
+        // entirely and slows OCR down for no accuracy gain.
+        val prepared = ImagePrep.prepare(path)
+
+        /* OCR FIRST, deliberately.
+         *
+         * Measured on device with a real Paytm receipt: ML Kit returns usable
+         * text in ~110ms, while the VLM on CPU still exceeds its 45s budget even
+         * after downscaling - roughly a thousand image tokens is simply slow
+         * without the NPU. A 50s stall is not usable in front of a user.
+         *
+         * The VLM is not wasted: it is better on creased, angled or handwritten
+         * receipts where OCR returns little. So run OCR, and only escalate to
+         * the model when OCR's text is too thin to parse. Revisit the ordering
+         * when qairt/NPU is wired and inference is fast. */
+        if (ocr != null) {
+            ocr!!.extract(prepared) { result ->
+                val text = result.optString("text", "")
+                if (result.optBoolean("ok") && text.length >= OCR_MIN_CHARS) {
+                    push("vision", result.toString())
+                } else if (v != null && v.isReady()) {
+                    Log.i(TAG, "vision: ocr thin (${text.length} chars), escalating to vlm")
+                    v.extract(prepared) { vres ->
+                        if (vres.optBoolean("ok")) push("vision", vres.toString())
+                        else push("vision", result.put("vlmError",
+                            vres.optString("error", "vlm failed")).toString())
+                    }
+                } else {
+                    push("vision", result.toString())
+                }
             }
+            return
+        }
+        // No OCR engine at all - fall back to the model.
+        if (v != null && v.isReady()) {
+            v.extract(prepared) { result -> push("vision", result.toString()) }
         } else {
-            runOcr(path, v?.status()?.optString("error") ?: "vlm not loaded")
+            push("vision", JSONObject().put("ok", false)
+                .put("error", v?.status()?.optString("error") ?: "no extraction available")
+                .toString())
         }
     }
 
@@ -135,6 +169,12 @@ class Bridge(
             result.put("vlmError", vlmError)
             push("vision", result.toString())
         }
+    }
+
+    /** OCR only, bypassing the VLM. Used to compare the two paths on one image. */
+    @JavascriptInterface
+    fun ocrOnly(path: String) {
+        runOcr(ImagePrep.prepare(path), "ocrOnly requested")
     }
 
     @JavascriptInterface

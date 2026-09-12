@@ -288,8 +288,20 @@ $('bVoice').onclick = function () { PTCapture.startVoice(); };
  * what we have and leave the user to type the number. Never a dead end. */
 PTCapture.onResult(function (kind, r) {
   if (r.note) $('note').value = r.note;
-  if (r.amount != null && r.amount > 0) {
-    $('amt').value = r.amount;
+  var amt = r.amount;
+  if (amt != null && amt > 0) {
+    // OCR glyph confusion is a guess; the bank SMS is fact. Prefer an amount
+    // the bank actually charged over one the camera thought it saw.
+    refreshSms(true);
+    var fix = PTExtract.reconcileAmount(amt, PTStore.txns);
+    if (fix.corrected) {
+      PTBridge.log('amount corrected ' + fix.from + ' -> ' + fix.amount +
+                   ' (' + fix.reason + ')');
+    }
+    amt = fix.amount;
+  }
+  if (amt != null && amt > 0) {
+    $('amt').value = amt;
     capture(kind, { path: r.path, note: r.note });
   } else {
     $('amt').focus();

@@ -63,6 +63,40 @@ var PTExtract = (function () {
     return digits.length >= 7 && raw.indexOf('.') === -1;
   }
 
+  /* OCR misreads the rupee glyph. Measured on a real Paytm receipt: "₹300" came
+   * back as "7300" - the sign was read as a leading 7. Left uncorrected that is
+   * a plausible wrong number on screen, which ADR-004 treats as worse than no
+   * number at all.
+   *
+   * Only a LEADING 7 immediately followed by a round-looking amount is treated
+   * as a stray glyph, and only when no currency marker was recognised on that
+   * line. A genuine 7300 keeps its 7 when written as "Rs 7300" or "7,300". */
+  var GLYPH_CONFUSIONS = [
+    { wrong: /^7(?=[0-9]{2,}$)/, right: '' },   // 7300 -> 300
+    { wrong: /^2(?=[0-9]{2,}$)/, right: '' }    // ?300 -> 300 (rupee read as 2)
+  ];
+
+  function deglyph(raw, line) {
+    // A recognised currency token means the glyph was read correctly - leave it.
+    if (/(?:₹|rs\.?|inr|rupees?)/i.test(line)) return raw;
+    // Grouped or decimal numbers are written deliberately - leave them.
+    if (raw.indexOf(',') >= 0 || raw.indexOf('.') >= 0) return raw;
+    for (var i = 0; i < GLYPH_CONFUSIONS.length; i++) {
+      var c = GLYPH_CONFUSIONS[i];
+      if (c.wrong.test(raw)) {
+        var fixed = raw.replace(c.wrong, c.right);
+        if (fixed.length && Number(fixed) > 0) return fixed;
+      }
+    }
+    return raw;
+  }
+
+  function lineAt(s, idx) {
+    var start = s.lastIndexOf('\n', idx) + 1;
+    var end = s.indexOf('\n', idx);
+    return s.substring(start, end === -1 ? s.length : end);
+  }
+
   function parseAmount(text) {
     if (!text) return null;
     var s = String(text);
@@ -71,7 +105,7 @@ var PTExtract = (function () {
       var m;
       while ((m = re.exec(s)) !== null) {
         if (isIdentifier(s, m.index, m[1])) continue;
-        var v = parseFloat(m[1].replace(/,/g, ''));
+        var v = parseFloat(deglyph(m[1], lineAt(s, m.index)).replace(/,/g, ''));
         if (v > 0) return v;
       }
     }
@@ -80,7 +114,7 @@ var PTExtract = (function () {
     var bre = /\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\b/g, bm;
     while ((bm = bre.exec(s)) !== null) {
       if (isIdentifier(s, bm.index, bm[1])) continue;
-      var b = parseFloat(bm[1].replace(/,/g, ''));
+      var b = parseFloat(deglyph(bm[1], lineAt(s, bm.index)).replace(/,/g, ''));
       if (b > 0) return b;
     }
     return null;
@@ -88,16 +122,32 @@ var PTExtract = (function () {
 
   /* Merchant from a receipt: the first line that looks like a name rather than
    * an address, a number or a label. */
+  /* Payment-app wrappers. On a Paytm/PhonePe/GPay slip the wallet name is the
+   * most prominent text, but the merchant is whoever was "Paid at" - the petrol
+   * bunk, not Paytm. Prefer the explicit payee line when one exists. */
+  var PAYEE_LINE =
+    /\b(?:paid\s*(?:at|to)|payee|merchant|billed\s*to)\b[:\s-]*([A-Za-z0-9&.'\- ]{3,40})/i;
+  var WALLET = /^(paytm|phonepe|google\s*pay|gpay|amazon\s*pay|bharatpe|razorpay|upi)$/i;
+
   function parseMerchant(text) {
     if (!text) return null;
+    var clean = String(text).replace(/[*_`#]/g, '');
+
+    var payee = clean.match(PAYEE_LINE);
+    if (payee) {
+      var name = payee[1].trim().replace(/\s{2,}/g, ' ');
+      if (name.length >= 3) return name;
+    }
+
     // The VLM emits markdown emphasis around lines it considers important.
-    var lines = String(text).replace(/[*_`#]/g, '').split(/[\r\n]+/);
+    var lines = clean.split(/[\r\n]+/);
     for (var i = 0; i < lines.length && i < 8; i++) {
       var l = lines[i].trim();
       if (l.length < 3 || l.length > 40) continue;
       if (/[0-9]{4,}/.test(l)) continue;
       if (/\b(gst|gstin|tin|invoice|bill|receipt|date|time|tel|phone)\b/i.test(l)) continue;
       if (/^[0-9₹rs.,\s-]+$/i.test(l)) continue;
+      if (WALLET.test(l.trim())) continue;   // wallet brand, not the merchant
       return l;
     }
     return null;
@@ -170,9 +220,36 @@ var PTExtract = (function () {
     });
   }
 
+  /* Ground-truth correction. OCR glyph confusion is a guess; the bank SMS is
+   * fact. If a candidate amount does not appear in the inbox but a near
+   * neighbour under a known glyph confusion does, prefer the one the bank
+   * actually charged. Deterministic, and it only ever swaps to a value that
+   * already exists as a real transaction (ADR-004). */
+  function reconcileAmount(amount, txns) {
+    if (amount == null || !txns || !txns.length) return { amount: amount };
+    var exact = txns.some(function (t) { return Math.abs(t.amount - amount) < 0.005; });
+    if (exact) return { amount: amount };
+
+    var s = String(amount);
+    var cands = [];
+    if (/^7[0-9]{2,}$/.test(s)) cands.push(Number(s.slice(1)));  // 7300 -> 300
+    if (/^2[0-9]{2,}$/.test(s)) cands.push(Number(s.slice(1)));
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      if (!(c > 0)) continue;
+      var hit = txns.filter(function (t) { return Math.abs(t.amount - c) < 0.005; });
+      if (hit.length) {
+        return { amount: c, corrected: true, from: amount, reason: 'matched bank SMS' };
+      }
+    }
+    return { amount: amount };
+  }
+
   return {
     fromImage: fromImage,
     fromAudio: fromAudio,
+    reconcileAmount: reconcileAmount,
+    deglyph: deglyph,
     parseAmount: parseAmount,
     parseMerchant: parseMerchant,
     noteFromSpeech: noteFromSpeech,
