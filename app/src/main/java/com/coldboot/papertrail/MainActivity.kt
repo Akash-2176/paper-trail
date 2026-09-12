@@ -104,10 +104,18 @@ class MainActivity : AppCompatActivity() {
         bridge.llm = llm
         // Loading NPU context binaries takes seconds; start at launch so the
         // first utterance is not the thing that waits for it.
+        /* SERIALISE the two GenieX engines.
+         *
+         * Both want the Hexagon DSP. Warming them together SIGSEGVs inside
+         * libggml-hexagon.so (ggml_backend_sched_new), because the VLM's
+         * llama.cpp backend probes the DSP while the qairt LLM is mid-load.
+         *
+         * The NPU LLM goes first - it is the one that genuinely needs Hexagon -
+         * and hands over to vision when it has finished, succeeded or not. */
+        llm.onSettled = { vision.warmUp() }
         llm.warmUp()
         // Loading a multi-GB VLM takes time; start as early as possible so the
         // first receipt capture is not the thing that waits for it.
-        vision.warmUp()
         webView.addJavascriptInterface(bridge, Bridge.NAME)
 
         // ContentObserver, not a BroadcastReceiver (ADR-001 holds: SMS still does not

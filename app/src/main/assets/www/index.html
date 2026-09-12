@@ -5,158 +5,216 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Paper Trail</title>
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    --bg: #0d0f12;
+    --card-bg: #14171c;
+    --card-border: #232930;
+    --text-primary: #e6e8eb;
+    --text-muted: #7e8794;
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-amber: #f59e0b;
+    --accent-purple: #a855f7;
+    --accent-red: #ef4444;
+  }
+  
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  
   body {
-    /* HackTracker's overlay sits over the top of the screen on the loaner, so
-       start below it rather than fighting for the same band. */
-    margin: 0; padding: 108px 12px 40px;
-    background: #0d0f12; color: #e6e8eb;
-    transition: background .15s;
-    font: 14px/1.45 -apple-system, Roboto, system-ui, sans-serif;
+    margin: 0;
+    padding: 104px 12px 130px;
+    background: var(--bg);
+    color: var(--text-primary);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, Roboto, system-ui, sans-serif;
+    transition: background .15s ease;
   }
-  header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
-  h1 { font-size: 15px; margin: 0; letter-spacing: .01em; }
-  .marker { font-size: 10px; color: #4ade80;
-            background: #16301f; padding: 2px 7px; border-radius: 99px;
-            font-variant-numeric: tabular-nums; }
-  .marker.npu  { background: #10243d; color: #7cc0ff; }
-  .marker.cpu  { background: #3a2c10; color: #f5cd7a; }
-  .marker.off  { background: #241416; color: #f87171; }
-
-  .capture { background: #14171c; border: 1px solid #232930; border-radius: 10px;
-             padding: 10px; margin-bottom: 12px; }
-  .capture .row { display: flex; gap: 6px; }
-  input {
-    flex: 1 1 auto; min-width: 0; padding: 9px 10px; font-size: 14px;
-    background: #0d0f12; color: #e6e8eb;
-    transition: background .15s; border: 1px solid #2b323c;
-    border-radius: 7px; font-family: inherit;
+  
+  /* --- Header ---------------------------------------------------- */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 52px;
+    background: rgba(13,15,18,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    z-index: 40;
   }
-  input#amt { flex: 0 0 96px; }
-  button {
-    padding: 9px 12px; background: #1f2630; color: #e6e8eb;
-    border: 1px solid #2b323c; border-radius: 7px; font-size: 13px;
-    font-family: inherit; white-space: nowrap;
+  h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  
+  .marker {
+    font-size: 10px; font-weight: 600;
+    color: #4ade80; background: #16301f;
+    padding: 3px 8px; border-radius: 99px;
+    font-variant-numeric: tabular-nums;
   }
-  button:active { background: #2a323e; }
-  button.primary { background: #1d4ed8; border-color: #2563eb; font-weight: 600; }
-  button.rec { background: #7f1d1d; border-color: #991b1b; }
-  .btns { display: flex; gap: 6px; margin-top: 6px; }
-  .btns button { flex: 1 1 0; }
+  .marker.npu { background: #10243d; color: #7cc0ff; }
+  .marker.cpu { background: #3a2c10; color: #f5cd7a; }
+  .marker.off { background: #241416; color: #f87171; }
+  
+  /* --- Clarity Dashboard Header --------------------------------- */
+  .clarity {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .cbox {
+    flex: 1 1 0; background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px; padding: 10px 8px; text-align: center;
+  }
+  .cbox .big {
+    font-size: 22px; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .cbox .lbl {
+    font-size: 9px; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--text-muted); margin-top: 3px;
+  }
+  .cbox.zero .big { color: #4ade80; }
+  .cbox.warn .big { color: var(--accent-amber); }
+  .cbox.bad  .big { color: var(--accent-red); }
+  .bar {
+    height: 4px; background: var(--card-border);
+    border-radius: 99px; margin-top: 6px; overflow: hidden;
+  }
+  .bar > i {
+    display: block; height: 100%;
+    background: var(--accent-green); border-radius: 99px;
+    transition: width .4s ease;
+  }
+  .bar.risk > i { background: var(--accent-amber); }
+  
+  /* --- Chat Feed (Conversational Canvas) ------------------------ */
+  .feed {
+    display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;
+  }
+  .chatMsg {
+    max-width: 90%; padding: 10px 14px; border-radius: 14px;
+    font-size: 14px; line-height: 1.45; animation: fadeIn .2s ease-out;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  
+  .chatUser {
+    align-self: flex-end; background: #2563eb; color: #fff;
+    border-bottom-right-radius: 4px; margin-left: auto;
+  }
+  .chatLlm {
+    align-self: flex-start; background: var(--card-bg);
+    border: 1px solid var(--card-border); border-bottom-left-radius: 4px; margin-right: auto;
+    width: 100%;
+  }
+  .chatLlm .q { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .chatLlm .a { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .chatLlm .rows { font-size: 12px; color: #9aa4b2; margin-top: 6px; border-top: 1px dashed #2b323c; padding-top: 6px; }
+  .chatLlm.dupWarn { border-color: #5c2318; background: #2a1410; }
+  .chatLlm.dupWarn .a { color: #fb923c; }
 
-  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-       color: #7e8794; margin: 14px 0 6px; display: flex; gap: 6px; align-items: center; }
-  .count { background: #1f2630; color: #9aa4b2; border-radius: 99px;
-           padding: 0 6px; font-size: 10px; }
-
-  .card { background: #14171c; border: 1px solid #232930; border-radius: 9px;
-          padding: 9px 10px; margin-bottom: 6px; }
-  .card.pending { border-left: 3px solid #f59e0b; }
-  .card.txn     { border-left: 3px solid #3b82f6; }
-  .card.merged  { border-left: 3px solid #22c55e; }
+  /* --- Section Headers & Cards ---------------------------------- */
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-muted); margin: 18px 0 8px; display: flex; gap: 6px; align-items: center;
+  }
+  .count {
+    background: #1f2630; color: #9aa4b2; border-radius: 99px;
+    padding: 1px 7px; font-size: 10px; font-weight: 600;
+  }
+  
+  .card {
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    border-radius: 9px; padding: 10px 12px; margin-bottom: 6px;
+  }
+  .card.pending { border-left: 3px solid var(--accent-amber); }
+  .card.txn     { border-left: 3px solid var(--accent-blue); }
+  .card.merged  { border-left: 3px solid var(--accent-green); }
+  .card.confirm { border-left: 3px solid var(--accent-purple); }
   .card.flash   { animation: flash .9s ease-out; }
   @keyframes flash {
     0%   { background: #14532d; transform: scale(1.02); }
-    100% { background: #14171c; transform: scale(1); }
+    100% { background: var(--card-bg); transform: scale(1); }
   }
-  .amt { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  
+  .amt { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .amt.credit { color: #4ade80; }
   .top { display: flex; align-items: baseline; gap: 8px; }
-  .who { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta { color: #7e8794; font-size: 11px; margin-top: 2px; }
-  .badge { font-size: 10px; padding: 1px 6px; border-radius: 99px;
-           background: #1f2630; color: #9aa4b2; }
+  .who { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .meta { color: var(--text-muted); font-size: 11px; margin-top: 3px; }
+  .badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 99px;
+    background: #1f2630; color: #9aa4b2;
+  }
   .badge.auto { background: #14532d; color: #4ade80; }
   .badge.p2p  { background: #3b2410; color: #fbbf24; }
-  .empty { color: #5b636e; font-size: 12px; padding: 6px 2px; }
-  .confirm { border-left: 3px solid #a855f7; }
-  .confirm .btns { margin-top: 7px; }
+  .empty { color: #5b636e; font-size: 12px; padding: 8px 2px; }
   .why { color: #6b7280; font-size: 10px; margin-top: 3px; }
 
-  /* --- capture sheet --------------------------------------------------- */
-  /* While a camera sheet is open the page goes transparent so the PreviewView
-     behind the WebView is visible. */
-  body.camera { background: transparent; }
-  body.camera > header, body.camera > .capture,
-  body.camera > h2, body.camera > div:not(.sheet) { visibility: hidden; }
-  .sheet { position: fixed; inset: 0; z-index: 50; display: flex;
-           align-items: flex-end; justify-content: center; }
-  .sheet.hidden { display: none; }
-  /* Transparent above the sheet so the camera viewfinder behind the WebView
-     shows through; only the sheet itself is opaque. */
-  .sheetInner { width: 100%; background: #14171c; border-top: 1px solid #2b323c;
-                border-radius: 14px 14px 0 0; padding: 14px 14px 22px;
-                box-shadow: 0 -12px 40px rgba(0,0,0,.55); }
-  .sheetHead { display: flex; align-items: center; font-size: 13px;
-               font-weight: 600; margin-bottom: 10px; }
-  .sheetHead .x { margin-left: auto; padding: 4px 10px; font-size: 14px; }
-  .shotRow { display: flex; gap: 8px; margin-top: 12px; }
-  .shotRow button { flex: 1 1 0; }
-  button.big { padding: 13px 12px; font-size: 15px; }
-  .hint { color: #7e8794; font-size: 12px; margin: 4px 0; }
-  .hint.ok { color: #4ade80; }
-  .hint.err, .err { color: #f87171; }
-  .src { color: #5b636e; font-size: 10px; }
-  .transcript { background: #0d0f12; border: 1px solid #232930; border-radius: 8px;
-                padding: 9px 10px; margin: 8px 0 4px; font-size: 14px; line-height: 1.4; }
-  .timer { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums;
-           text-align: center; margin: 2px 0 6px; }
-  .listening { display: flex; gap: 7px; justify-content: center; padding: 10px 0 2px; }
-  .listening .dot { width: 11px; height: 11px; border-radius: 50%;
-                    background: #ef4444; animation: pulse 1.1s infinite ease-in-out; }
-  .listening .dot:nth-child(2) { animation-delay: .18s; }
-  .listening .dot:nth-child(3) { animation-delay: .36s; }
-  @keyframes pulse { 0%,100% { opacity: .28; transform: scale(.82); }
-                     50% { opacity: 1; transform: scale(1.18); } }
-
-  /* --- P0-2 clarity header ------------------------------------------- */
-  .clarity { display: flex; gap: 8px; margin-bottom: 10px; }
-  .cbox { flex: 1 1 0; background: #14171c; border: 1px solid #232930;
-          border-radius: 10px; padding: 8px 10px; text-align: center; }
-  .cbox .big { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
-               line-height: 1.1; }
-  .cbox .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .07em;
-               color: #7e8794; margin-top: 2px; }
-  .cbox.zero .big { color: #4ade80; }
-  .cbox.warn .big { color: #f59e0b; }
-  .cbox.bad  .big { color: #f87171; }
-  .bar { height: 4px; background: #232930; border-radius: 99px; margin-top: 6px;
-         overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: #22c55e; border-radius: 99px;
-             transition: width .4s ease; }
-  .bar.risk > i { background: #f59e0b; }
-
-  /* --- P1 evidence chips ---------------------------------------------- */
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
-  .chip { font-size: 9px; padding: 2px 6px; border-radius: 99px;
-          border: 1px solid transparent; letter-spacing: .02em; }
+  /* --- Chips ----------------------------------------------------- */
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .chip { font-size: 9px; padding: 2px 6px; border-radius: 99px; border: 1px solid transparent; }
   .chip.sms    { background: #10243d; color: #7cc0ff; border-color: #1b3a5e; }
   .chip.ocr    { background: #0f2e21; color: #5ee9a4; border-color: #174633; }
   .chip.voice  { background: #2e1b3d; color: #d0a3f5; border-color: #46295e; }
   .chip.purpose{ background: #3a2c10; color: #f5cd7a; border-color: #5c451a; }
   .chip.none   { background: #241416; color: #f87171; border-color: #45201f; }
 
-  /* --- P0-1 two-second proof ------------------------------------------ */
-  .proof { background: #14171c; border: 1px solid #232930; border-radius: 10px;
-           padding: 10px; margin-bottom: 12px; }
-  .proofRow { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
-  .proofRow .k { font-size: 11px; color: #7e8794; width: 62px; }
-  .proofRow .v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .proofRow.fast .v { color: #4ade80; }
-  .proofRow.slow .v { color: #f87171; }
-  .proofWin { font-size: 11px; color: #9aa4b2; margin-top: 6px; }
+  /* --- Fixed Bottom Smart Action Bar ---------------------------- */
+  .actionBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(13,15,18,0.96); backdrop-filter: blur(14px);
+    border-top: 1px solid var(--card-border); padding: 10px 12px 14px;
+    z-index: 40; display: flex; flex-direction: column; gap: 8px;
+  }
+  .actionTop { display: flex; gap: 8px; align-items: center; }
+  .actionTop input {
+    flex: 1 1 auto; background: var(--card-bg); border: 1px solid #2b323c;
+    border-radius: 99px; padding: 11px 16px; color: var(--text-primary);
+    font-size: 15px; outline: none; font-family: inherit;
+    transition: border-color .15s;
+  }
+  .actionTop input:focus { border-color: var(--accent-blue); }
+  
+  .actionBtn {
+    width: 42px; height: 42px; border-radius: 21px; background: #1f2630;
+    border: 1px solid #2b323c; color: var(--text-primary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; flex-shrink: 0; cursor: pointer;
+  }
+  .actionBtn:active { background: #2a323e; }
+  .actionBtn.primary { background: #2563eb; border-color: #3b82f6; }
+  
+  .actionTools { display: flex; gap: 8px; justify-content: space-around; }
+  .actionTools button {
+    background: none; border: none; color: #9aa4b2; font-size: 12px;
+    display: flex; gap: 4px; align-items: center; padding: 4px 8px; cursor: pointer;
+    font-family: inherit;
+  }
+  .actionTools button:active { color: var(--text-primary); }
 
-  /* --- P1 ask box ------------------------------------------------------ */
-  .ask { display: flex; gap: 6px; margin-top: 6px; }
-  .ask input { flex: 1 1 auto; }
-  .answer { background: #101a26; border: 1px solid #1b3a5e; border-radius: 8px;
-            padding: 9px 10px; margin-top: 6px; font-size: 13px; }
-  .answer .q { color: #7e8794; font-size: 11px; margin-bottom: 3px; }
-  .answer .a { font-size: 15px; font-weight: 600; }
-  .answer .rows { color: #9aa4b2; font-size: 11px; margin-top: 4px; line-height: 1.5; }
-  .dupWarn { background: #2a1410; border-color: #5c2318; }
-  .dupWarn .a { color: #fb923c; }
+  /* --- Sheets ---------------------------------------------------- */
+  body.camera { background: transparent; }
+  body.camera > header, body.camera > .feed, body.camera > .clarity,
+  body.camera > h2, body.camera > div:not(.sheet) { visibility: hidden; }
+  .sheet {
+    position: fixed; inset: 0; z-index: 50; display: flex;
+    align-items: flex-end; justify-content: center;
+  }
+  .sheet.hidden { display: none; }
+  .sheetInner {
+    width: 100%; background: var(--card-bg); border-top: 1px solid #2b323c;
+    border-radius: 16px 16px 0 0; padding: 16px 16px 24px;
+    box-shadow: 0 -12px 40px rgba(0,0,0,.6);
+  }
+  .sheetHead {
+    display: flex; align-items: center; font-size: 14px;
+    font-weight: 600; margin-bottom: 10px;
+  }
+  .sheetHead .x { margin-left: auto; padding: 4px 10px; font-size: 16px; cursor: pointer; }
+  .shotRow { display: flex; gap: 8px; margin-top: 12px; }
+  .shotRow button { flex: 1 1 0; padding: 12px; border-radius: 8px; font-size: 14px; }
+  .hint { color: var(--text-muted); font-size: 12px; margin: 4px 0; }
+  .hint.ok { color: #4ade80; }
+  .hint.err, .err { color: var(--accent-red); }
 </style>
 </head>
 <body>
@@ -167,7 +225,7 @@
   <span class="marker" id="marker" style="margin-left:6px">boot</span>
 </header>
 
-
+<!-- Clarity Dashboard Header -->
 <div class="clarity">
   <div class="cbox" id="boxUnexplained">
     <div class="big" id="unexCount">–</div>
@@ -184,43 +242,39 @@
   </div>
 </div>
 
-<div class="proof" id="proofPanel" style="display:none">
-  <div style="font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#7e8794">Measured capture cost</div>
-  <div class="proofRow fast"><span class="k">Capture</span><span class="v" id="proofCapture">–</span></div>
-  <div class="proofRow slow"><span class="k">By hand</span><span class="v" id="proofManual">–</span></div>
-  <div class="proofWin" id="proofWin"></div>
+<!-- Conversational Canvas / Chat Feed -->
+<div class="feed" id="chatFeed">
+  <div class="chatMsg chatLlm">
+    <div class="q">Paper Trail Agent</div>
+    <div class="a">Ask any question or type a spend below (e.g., "₹250 for lunch" or "How much did I spend on coffee?").</div>
+  </div>
 </div>
 
-<div class="capture">
-  <div class="row">
-    <input id="amt" type="number" inputmode="decimal" placeholder="₹ amt">
-    <input id="note" type="text" placeholder="what was it? (e.g. swiggy dinner)">
-  </div>
-  <div class="btns">
-    <button class="primary" id="bManual">+ Spend</button>
-    <button id="bPhoto">📷 Photo</button>
-    <button id="bVoice">🎙 Voice</button>
-  </div>
-  <div class="btns">
-    <button id="bRefresh">↻ Read SMS</button>
-    <button id="bReconcile">⇄ Reconcile</button>
-  </div>
-  <div class="ask">
-    <input id="askBox" type="text" placeholder="ask: how much on my college project?">
-    <button id="bAsk">Ask</button>
-  </div>
-  <div id="answer"></div>
-</div>
+<!-- Detailed Ledger Views -->
+<h2>Action Items <span class="count" id="cPend">0</span></h2>
+<div id="pendList"><div class="empty">no pending captures</div></div>
 
-<h2>Reconciled <span class="count" id="cRec">0</span></h2>
+<h2>Unmerged Bank SMS <span class="count" id="cTxn">0</span></h2>
+<div id="txnList"><div class="empty">no raw bank SMS</div></div>
+
+<h2>Reconciled Ledger <span class="count" id="cRec">0</span></h2>
 <div id="recList"><div class="empty">nothing merged yet</div></div>
 
-<h2>Pending <span class="count" id="cPend">0</span></h2>
-<div id="pendList"><div class="empty">no captures yet</div></div>
+<!-- Fixed Bottom Smart Action Bar -->
+<div class="actionBar">
+  <div class="actionTop">
+    <input id="smartInput" type="text" placeholder="Add spend or ask a question..." enterkeyhint="send">
+    <button class="actionBtn primary" id="bSend">➔</button>
+    <button class="actionBtn" id="bVoice">🎙</button>
+  </div>
+  <div class="actionTools">
+    <button id="bPhoto">📷 Receipt Photo</button>
+    <button id="bRefresh">↻ Sync SMS</button>
+    <button id="bReconcile">⇄ Reconcile</button>
+  </div>
+</div>
 
-<h2>Transactions <span class="count" id="cTxn">0</span></h2>
-<div id="txnList"><div class="empty">tap "Read SMS"</div></div>
-
+<!-- JS Modules -->
 <script src="js/reconcile.js"></script>
 <script src="js/store.js"></script>
 <script src="js/bridge.js"></script>
@@ -229,436 +283,363 @@
 <script src="js/financial-memory.js"></script>
 <script src="js/intent.js"></script>
 <script src="js/proof.js"></script>
+
 <script>
-var BUILD_MARKER = 'demo-v1';
-var recording = false;
-var pendingConfirms = [];
+  var BUILD_MARKER = 'v1.1-redesign';
+  var pendingConfirms = [];
+  
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function money(n) {
+    return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  }
 
-function $(id) { return document.getElementById(id); }
-function money(n) { return '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2}); }
-function ago(ts) {
-  var d = Math.round((Date.now() - ts) / 1000);
-  if (d < 60) return d + 's ago';
-  if (d < 3600) return Math.round(d / 60) + 'm ago';
-  return Math.round(d / 3600) + 'h ago';
-}
-function stamp() {
-  $('marker').textContent = BUILD_MARKER + ' ' + new Date().toTimeString().slice(0, 8);
-}
+  function stamp() {
+    $('marker').textContent = BUILD_MARKER + ' ' + new Date().toTimeString().slice(0, 5);
+  }
 
+  // --- Runtime Badge --------------------------------------------
+  function renderRuntime() {
+    var b = $('npuBadge');
+    var st = PTBridge.llmStatus();
+    if (st && st.available) {
+      var unit = String(st.computeUnit || '').toLowerCase();
+      var onNpu = unit.indexOf('npu') >= 0;
+      b.className = 'marker ' + (onNpu ? 'npu' : 'cpu');
+      b.textContent = (onNpu ? 'NPU' : 'CPU') + ' · Qwen3';
+    } else if (st && st.loading) {
+      b.className = 'marker cpu';
+      b.textContent = 'Loading…';
+    } else {
+      b.className = 'marker off';
+      b.textContent = 'Rules engine';
+    }
+  }
 
-/* --- P1 evidence chips ------------------------------------------------
- * One chip per independent source that backs a record. This is the visible
- * form of the truth hierarchy: SMS proves the money moved, OCR proves what was
- * bought, voice proves why. */
-var CHIP_LABEL = { sms: 'SMS', ocr: 'RECEIPT', voice: 'VOICE', purpose: 'PURPOSE' };
+  // --- Clarity Header -------------------------------------------
+  function renderClarity() {
+    var un = PTMemory.unexplained(PTStore);
+    var sc = PTMemory.clarityScore(PTStore);
+    var st = PTMemory.clarityStreak(PTStore);
 
-function chipsFor(r) {
-  var rec = {
-    kind: 'reconciled',
-    source: (r.pending && r.pending.source) || 'manual',
-    purpose: (r.pending && r.pending.purpose) || ''
+    $('unexCount').textContent = un.count;
+    $('boxUnexplained').className = 'cbox ' + (un.count === 0 ? 'zero' : (un.count <= 2 ? 'warn' : 'bad'));
+
+    $('clarityPct').textContent = sc.totalRows ? (sc.pct + '%') : '–';
+    $('boxScore').className = 'cbox ' + (sc.pct >= 90 ? 'zero' : (sc.pct >= 60 ? 'warn' : 'bad'));
+
+    $('streakDays').textContent = st.days;
+    var barPct = st.todayTotal ? Math.round((st.todayExplained / st.todayTotal) * 100) : 100;
+    var bar = $('streakBar');
+    bar.className = 'bar' + (st.atRisk ? ' risk' : '');
+    bar.firstChild.style.width = barPct + '%';
+    $('boxStreak').className = 'cbox ' + (st.atRisk ? 'warn' : 'zero');
+  }
+
+  // --- Chips Renderer -------------------------------------------
+  function chipsFor(r) {
+    var rec = {
+      kind: 'reconciled',
+      source: (r.pending && r.pending.source) || 'manual',
+      purpose: (r.pending && r.pending.purpose) || ''
+    };
+    var ev = PTMemory.evidenceOf(rec);
+    var html = ev.map(function (e) {
+      return '<span class="chip ' + e + '">' + e.toUpperCase() + '</span>';
+    }).join('');
+    if (!PTMemory.isExplained(rec)) html += '<span class="chip none">no evidence</span>';
+    if (rec.purpose) html += '<span class="chip purpose">' + esc(rec.purpose) + '</span>';
+    return '<div class="chips">' + html + '</div>';
+  }
+
+  // --- Main Ledger Rendering ------------------------------------
+  function render(flashIds) {
+    flashIds = flashIds || {};
+    var S = PTStore;
+
+    // Reconciled
+    var rec = S.reconciled.slice().reverse();
+    $('cRec').textContent = rec.length;
+    $('recList').innerHTML = rec.length ? rec.map(function (r) {
+      return '<div class="card merged ' + (flashIds[r.id] ? 'flash' : '') + '">' +
+        '<div class="top"><span class="amt">' + money(r.txn.amount) + '</span>' +
+        '<span class="who">' + esc(r.pending.note || r.txn.counterparty || 'Spend') + '</span>' +
+        '<span class="badge ' + (r.auto ? 'auto' : '') + '">' + (r.auto ? 'auto ' : 'confirmed ') + Math.round(r.confidence * 100) + '%</span></div>' +
+        '<div class="meta">' + esc(r.txn.issuer || 'bank') + (r.txn.counterparty ? ' · ' + esc(r.txn.counterparty) : '') + '</div>' +
+        '<div class="why">' + esc((r.reasons || []).join(' · ')) + '</div>' +
+        chipsFor(r) +
+      '</div>';
+    }).join('') : '<div class="empty">nothing reconciled yet</div>';
+
+    // Pending & Confirm Prompts
+    var html = pendingConfirms.map(function (c, i) {
+      return '<div class="card confirm">' +
+        '<div class="top"><span class="amt">' + money(c.pending.amount) + '</span>' +
+        '<span class="who">' + esc(c.pending.note || c.pending.source) + '</span></div>' +
+        '<div class="meta">match: ' + money(c.cand.txn.amount) + ' ' + esc(c.cand.txn.counterparty || '') + ' (' + Math.round(c.cand.confidence * 100) + '%)</div>' +
+        '<div class="btns" style="display:flex;gap:6px;margin-top:6px;"><button onclick="doConfirm(' + i + ')">Merge</button>' +
+        '<button onclick="dismissConfirm(' + i + ')">Dismiss</button></div>' +
+      '</div>';
+    }).join('');
+
+    var pend = S.pending.slice().reverse();
+    $('cPend').textContent = pend.length;
+    html += pend.map(function (p) {
+      return '<div class="card pending">' +
+        '<div class="top"><span class="amt">' + money(p.amount) + '</span>' +
+        '<span class="who">' + esc(p.note || '(no note)') + '</span>' +
+        '<span class="badge">' + p.source + '</span></div>' +
+        '<div class="meta">waiting for bank SMS</div>' +
+      '</div>';
+    }).join('');
+    $('pendList').innerHTML = html || '<div class="empty">no pending captures</div>';
+
+    // Unmerged Bank SMS
+    var un = S.txns.filter(function (t) { return !S.isMerged(t.id); });
+    $('cTxn').textContent = un.length;
+    $('txnList').innerHTML = un.length ? un.map(function (t) {
+      var cr = t.direction === 'credit';
+      return '<div class="card txn">' +
+        '<div class="top"><span class="amt ' + (cr ? 'credit' : '') + '">' + (cr ? '+' : '') + money(t.amount) + '</span>' +
+        '<span class="who">' + esc(t.counterparty || '—') + '</span>' +
+        (t.kind === 'p2p' ? '<span class="badge p2p">p2p</span>' : '') + '</div>' +
+        '<div class="meta">' + esc(t.issuer || 'SMS') + (t.acctLast4 ? ' · ••' + t.acctLast4 : '') + '</div>' +
+      '</div>';
+    }).join('') : '<div class="empty">no unmerged bank SMS</div>';
+
+    renderClarity();
+  }
+
+  function doConfirm(i) {
+    var c = pendingConfirms[i];
+    if (!c) return;
+    var m = PTStore.confirmMerge(c.pending.id, c.cand.txn.id);
+    PTStore.save();
+    pendingConfirms.splice(i, 1);
+    var flash = {}; if (m) flash[m.id] = 1;
+    render(flash);
+  }
+  function dismissConfirm(i) { pendingConfirms.splice(i, 1); render(); }
+
+  // --- Conversational Feed Append -------------------------------
+  function appendChat(text, type, extraClass) {
+    var div = document.createElement('div');
+    div.className = 'chatMsg ' + (type === 'user' ? 'chatUser' : 'chatLlm') + (extraClass ? ' ' + extraClass : '');
+    div.innerHTML = text;
+    $('chatFeed').appendChild(div);
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  // --- Unified Smart Input Handler -----------------------------
+  function handleSmartInput(text) {
+    if (!text) return;
+    appendChat(esc(text), 'user');
+
+    PTIntent.route(text, function(res) {
+      PTBridge.log('route intent=' + res.intent + ' via=' + res.via + ' q=' + (res.queryName || '-'));
+
+      if (res.intent === 'query') {
+        var ans = PTIntent.runQuery(res, PTStore);
+        var dup = ans.query === 'didIPayTwice' && ans.count > 0;
+        var html = '<div class="q">Query Result • ' + esc(res.via) + '</div>';
+        html += '<div class="a">' + esc(PTIntent.describe(ans)) + '</div>';
+        
+        if (ans.rows && ans.rows.length > 0) {
+          html += '<div class="rows">';
+          for(var i = 0; i < Math.min(4, ans.rows.length); i++) {
+             var r = ans.rows[i];
+             html += '• ' + money(r.amount) + ' — ' + esc(r.merchant || r.purpose || 'spend') + (r.ref ? ' (ref ' + esc(r.ref) + ')' : '') + '<br>';
+          }
+          if(ans.rows.length > 4) html += '...and ' + (ans.rows.length - 4) + ' more';
+          html += '</div>';
+        }
+        appendChat(html, 'llm', dup ? 'dupWarn' : '');
+
+      } else if (res.intent === 'capture') {
+        var amt = res.amount;
+        if (!amt || !(amt > 0)) {
+          appendChat('<div class="a">No amount recognized in "' + esc(text) + '". Try e.g. "250 for lunch".</div>', 'llm');
+          return;
+        }
+
+        var p = PTStore.addPending({
+          amount: amt,
+          note: res.note || res.purpose || 'Capture',
+          purpose: res.purpose || '',
+          source: res.via === 'llm' ? 'voice' : 'manual'
+        });
+        PTStore.save();
+        
+        // Auto-reconcile with SMS
+        var rows = PTBridge.readSms(200);
+        PTStore.setTxns(rows);
+        var recRes = PTStore.reconcileAll();
+        pendingConfirms = recRes.confirm;
+        PTStore.save();
+
+        var flash = {};
+        recRes.merged.forEach(function(m){ flash[m.id] = 1; });
+        
+        var msg = 'Captured <b>' + money(p.amount) + '</b> for <i>' + esc(p.note) + '</i>';
+        if (recRes.merged.length > 0) msg += ' • Auto-merged with Bank SMS!';
+        appendChat('<div class="a">' + msg + '</div>', 'llm');
+        render(flash);
+
+      } else if (res.intent === 'context') {
+        var p = res.purpose;
+        if (!p) {
+          appendChat('<div class="a">Could not extract category label.</div>', 'llm');
+          return;
+        }
+        var target = PTStore.pending.length
+          ? PTStore.pending[PTStore.pending.length - 1]
+          : (PTStore.reconciled.length ? PTStore.reconciled[PTStore.reconciled.length - 1].pending : null);
+
+        if (target) {
+          target.purpose = p;
+          PTStore.save();
+          appendChat('<div class="a">Attached label <b>"' + esc(p) + '"</b> to recent spend of ' + money(target.amount) + '.</div>', 'llm');
+          render();
+        } else {
+          appendChat('<div class="a">No spend available to tag with "' + esc(p) + '".</div>', 'llm');
+        }
+      }
+    });
+  }
+
+  // --- Input & Button Events -----------------------------------
+  function submitInput() {
+    var val = $('smartInput').value.trim();
+    if (val) {
+      $('smartInput').value = '';
+      handleSmartInput(val);
+    }
+  }
+
+  $('bSend').onclick = submitInput;
+  $('smartInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') submitInput();
+  });
+
+  $('bRefresh').onclick = function() {
+    var rows = PTBridge.readSms(200);
+    PTStore.setTxns(rows);
+    PTStore.reconcileAll();
+    PTStore.save();
+    render();
+    stamp();
   };
-  var ev = PTMemory.evidenceOf(rec);
-  var html = ev.map(function (e) {
-    return '<span class="chip ' + e + '">' + (CHIP_LABEL[e] || e.toUpperCase()) + '</span>';
-  }).join('');
-  if (!PTMemory.isExplained(rec)) {
-    html += '<span class="chip none">no evidence</span>';
-  }
-  var p = rec.purpose;
-  if (p) html += '<span class="chip purpose">' + esc(p) + '</span>';
-  return '<div class="chips">' + html + '</div>';
-}
 
-/* --- P0-3 runtime badge ----------------------------------------------
- * Shows where inference actually runs. A claim of NPU execution has to be
- * checkable on the device, not asserted in a slide. */
-function renderRuntime() {
-  var b = $('npuBadge');
-  var st = PTBridge.llmStatus();
-  if (st && st.available) {
-    // Report the compute unit that actually loaded, not the one requested.
-    var onNpu = String(st.computeUnit || '').toLowerCase() === 'npu';
-    b.className = 'marker ' + (onNpu ? 'npu' : 'cpu');
-    b.textContent = (onNpu ? 'NPU' : 'CPU') + ' · Qwen3-1.7B';
-  } else if (st && st.loading) {
-    b.className = 'marker cpu';
-    b.textContent = 'NPU loading…';
-  } else {
-    b.className = 'marker off';
-    b.textContent = 'rules only';
-  }
-}
+  $('bReconcile').onclick = function() {
+    var r = PTStore.reconcileAll();
+    PTStore.save();
+    pendingConfirms = r.confirm;
+    var flash = {};
+    r.merged.forEach(function(m){ flash[m.id] = 1; });
+    render(flash);
+  };
 
-/* --- P0-2 clarity header --------------------------------------------- */
-function renderClarity() {
-  var un = PTMemory.unexplained(PTStore);
-  var sc = PTMemory.clarityScore(PTStore);
-  var st = PTMemory.clarityStreak(PTStore);
+  $('bPhoto').onclick = function() { PTCapture.startPhoto(); };
+  $('bVoice').onclick = function() { PTCapture.startVoice(); };
 
-  $('unexCount').textContent = un.count;
-  $('boxUnexplained').className = 'cbox ' +
-    (un.count === 0 ? 'zero' : (un.count <= 2 ? 'warn' : 'bad'));
-
-  $('clarityPct').textContent = sc.totalRows ? (sc.pct + '%') : '–';
-  $('boxScore').className = 'cbox ' +
-    (sc.pct >= 90 ? 'zero' : (sc.pct >= 60 ? 'warn' : 'bad'));
-
-  $('streakDays').textContent = st.days;
-  var barPct = st.todayTotal
-    ? Math.round((st.todayExplained / st.todayTotal) * 100) : 100;
-  var bar = $('streakBar');
-  bar.className = 'bar' + (st.atRisk ? ' risk' : '');
-  bar.firstChild.style.width = barPct + '%';
-  $('boxStreak').className = 'cbox ' + (st.atRisk ? 'warn' : 'zero');
-}
-
-/* --- P0-1 two-second proof ------------------------------------------- */
-function renderProof() {
-  var h = PTProof.headline();
-  var panel = $('proofPanel');
-  if (!h) { panel.style.display = 'none'; return; }
-  panel.style.display = '';
-  $('proofCapture').textContent = h.capture;
-  if (!h.ready) {
-    $('proofManual').textContent = '–';
-    $('proofWin').textContent = h.note;
-    return;
-  }
-  $('proofManual').textContent = h.manual;
-  $('proofWin').textContent =
-    h.factor + '× faster · ' + PTProof.secs(h.savedMs) +
-    ' saved per entry · n=' + h.n.capture + '/' + h.n.manual;
-}
-
-/* --- P1 ask box ------------------------------------------------------- */
-function renderAnswer(text, intent, result) {
-  var box = $('answer');
-  if (!result) { box.innerHTML = ''; return; }
-  var dup = result.query === 'didIPayTwice' && result.count > 0;
-  var rows = '';
-  if (dup) {
-    rows = result.pairs.map(function (p) {
-      return '⚠ ' + money(p.amount) + ' to ' + esc(p.merchant) +
-             ' twice, ' + Math.round(p.gapMs / 1000) + 's apart' +
-             '<br><span style="color:#6b7280">refs ' + esc(p.first.ref || '?') +
-             ' and ' + esc(p.second.ref || '?') + '</span>';
-    }).join('<br>');
-  } else if (result.rows && result.rows.length) {
-    rows = result.rows.slice(0, 4).map(function (r) {
-      return money(r.amount) + ' · ' + esc(r.merchant || r.purpose || '—') +
-             (r.ref ? ' · ref ' + esc(r.ref) : '');
-    }).join('<br>');
-  }
-  box.innerHTML =
-    '<div class="answer' + (dup ? ' dupWarn' : '') + '">' +
-      '<div class="q">' + esc(text) + '</div>' +
-      '<div class="a">' + esc(PTIntent.describe(result)) + '</div>' +
-      (rows ? '<div class="rows">' + rows + '</div>' : '') +
-    '</div>';
-}
-
-function ask(text) {
-  if (!text) return;
-  PTIntent.route(text, function (intent) {
-    PTBridge.log('intent ' + intent.intent + ' via ' + intent.via +
-                 ' q=' + (intent.queryName || '-'));
-    if (intent.intent !== 'query') {
-      // Not a question: treat it as labelling the most recent capture.
-      applyContext(intent);
-      return;
+  // Voice/Photo Callbacks
+  PTCapture.onIntent(function(intent, text) {
+    if (intent.intent === 'query') {
+      var result = PTIntent.runQuery(intent, PTStore);
+      appendChat('<div class="q">Voice Query</div><div class="a">' + esc(PTIntent.describe(result)) + '</div>', 'llm');
+    } else if (intent.purpose) {
+      handleSmartInput(text);
     }
-    var result = PTIntent.runQuery(intent, PTStore);
-    renderAnswer(text, intent, result);
   });
-}
 
-/* Voice context: attach a purpose to the most recent record, so
- * "this is for my college project" labels what was just captured. */
-function applyContext(intent) {
-  var p = intent.purpose;
-  if (!p) return;
-  var target = PTStore.pending.length
-    ? PTStore.pending[PTStore.pending.length - 1]
-    : (PTStore.reconciled.length
-        ? PTStore.reconciled[PTStore.reconciled.length - 1].pending : null);
-  if (!target) { renderAnswer('label: ' + p, intent, null); return; }
-  target.purpose = p;
-  PTStore.save();
-  render();
-  renderClarity();
-  PTBridge.log('context: labelled "' + p + '"');
-}
+  PTCapture.onResult(function(kind, r) {
+    var amt = r.amount;
+    if (amt != null && amt > 0) {
+      var p = PTStore.addPending({
+        amount: amt,
+        note: r.note || kind,
+        purpose: r.purpose || '',
+        source: kind,
+        path: r.path
+      });
+      PTStore.save();
+      var rRes = PTStore.reconcileAll();
+      pendingConfirms = rRes.confirm;
+      PTStore.save();
+      appendChat('<div class="a">Captured ' + money(p.amount) + ' via ' + kind + '</div>', 'llm');
+      render();
+    }
+  });
 
-function render(flashIds) {
-  flashIds = flashIds || {};
-  var S = PTStore;
+  // --- Safe Native Push Gateway (ADR-003) -----------------------
+  window.PTOnEvent = function(name, payload) {
+    try {
+      if (name === 'sms') {
+        var rows = PTBridge.asObj(payload, []);
+        PTStore.setTxns(rows || []);
+        var r = PTStore.reconcileAll();
+        pendingConfirms = r.confirm;
+        PTStore.save();
+        render();
+        return;
+      }
+      if (name === 'capture') {
+        var r = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptCaptureCb) { var cb = window.__ptCaptureCb; window.__ptCaptureCb = null; cb(r); }
+        return;
+      }
+      if (name === 'cameraOpen') {
+        var c = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptCameraCb) { var cc = window.__ptCameraCb; window.__ptCameraCb = null; cc(c); }
+        return;
+      }
+      if (name === 'vision') {
+        var v = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptVisionCb) { var vc = window.__ptVisionCb; window.__ptVisionCb = null; vc(v); }
+        return;
+      }
+      if (name === 'transcript') {
+        var t = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptTranscriptCb) { var tc = window.__ptTranscriptCb; window.__ptTranscriptCb = null; tc(t); }
+        return;
+      }
+      if (name === 'intent') {
+        var ir = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptIntentCb) { var ic = window.__ptIntentCb; window.__ptIntentCb = null; ic(ir); }
+        return;
+      }
+      if (name === 'partial') {
+        var pp = PTBridge.asObj(payload, {});
+        if (window.__ptPartialCb && pp.text) window.__ptPartialCb(pp.text);
+        return;
+      }
+      if (name === 'permissions') {
+        var rows = PTBridge.readSms(200);
+        PTStore.setTxns(rows);
+        render();
+      }
+    } catch(err) {
+      PTBridge.log('PTOnEvent error in handler for ' + name + ': ' + err);
+    }
+  };
 
-  // reconciled
-  var rec = S.reconciled.slice().reverse();
-  $('cRec').textContent = rec.length;
-  $('recList').innerHTML = rec.length ? rec.map(function (r) {
-    return '<div class="card merged ' + (flashIds[r.id] ? 'flash' : '') + '">' +
-      '<div class="top"><span class="amt">' + money(r.txn.amount) + '</span>' +
-      '<span class="who">' + esc(r.pending.note || r.txn.counterparty || '—') + '</span>' +
-      '<span class="badge ' + (r.auto ? 'auto' : '') + '">' +
-        (r.auto ? 'auto ' : 'confirmed ') + Math.round(r.confidence * 100) + '%</span></div>' +
-      '<div class="meta">' + esc(r.txn.issuer || 'cash') +
-        ' · ' + esc(r.txn.counterparty || '') +
-        (r.txn.acctLast4 ? ' · ••' + r.txn.acctLast4 : '') + '</div>' +
-      '<div class="why">' + esc((r.reasons || []).join(' · ')) + '</div>' +
-      chipsFor(r) +
-    '</div>';
-  }).join('') : '<div class="empty">nothing merged yet</div>';
-
-  // confirm prompts + pending
-  var html = pendingConfirms.map(function (c, i) {
-    return '<div class="card confirm">' +
-      '<div class="top"><span class="amt">' + money(c.pending.amount) + '</span>' +
-      '<span class="who">' + esc(c.pending.note || c.pending.source) + '</span></div>' +
-      '<div class="meta">possible match: ' + money(c.cand.txn.amount) + ' ' +
-        esc(c.cand.txn.counterparty || '') + ' · ' +
-        Math.round(c.cand.confidence * 100) + '%</div>' +
-      '<div class="why">' + esc((c.cand.reasons || []).join(' · ')) + '</div>' +
-      '<div class="btns"><button onclick="doConfirm(' + i + ')">Merge</button>' +
-      '<button onclick="dismissConfirm(' + i + ')">Not this</button></div>' +
-    '</div>';
-  }).join('');
-
-  var pend = S.pending.slice().reverse();
-  $('cPend').textContent = pend.length;
-  html += pend.map(function (p) {
-    return '<div class="card pending">' +
-      '<div class="top"><span class="amt">' + money(p.amount) + '</span>' +
-      '<span class="who">' + esc(p.note || '(no note)') + '</span>' +
-      '<span class="badge">' + p.source + '</span></div>' +
-      '<div class="meta">' + ago(p.ts) + ' · waiting for bank SMS</div>' +
-    '</div>';
-  }).join('');
-  $('pendList').innerHTML = html || '<div class="empty">no captures yet</div>';
-
-  // transactions (unmerged only)
-  var un = S.txns.filter(function (t) { return !S.isMerged(t.id); });
-  $('cTxn').textContent = un.length;
-  $('txnList').innerHTML = un.length ? un.map(function (t) {
-    var cr = t.direction === 'credit';
-    return '<div class="card txn">' +
-      '<div class="top"><span class="amt ' + (cr ? 'credit' : '') + '">' +
-        (cr ? '+' : '') + money(t.amount) + '</span>' +
-      '<span class="who">' + esc(t.counterparty || '—') + '</span>' +
-      (t.kind === 'p2p' ? '<span class="badge p2p">p2p</span>' : '') + '</div>' +
-      '<div class="meta">' + esc(t.issuer || '?') + ' · ' + ago(t.ts) +
-        (t.acctLast4 ? ' · ••' + t.acctLast4 : '') +
-        (t.senderRouted ? '' : ' · body-sig') + '</div>' +
-      '<div class="chips"><span class="chip sms">SMS</span>' +
-      '<span class="chip none">no evidence</span></div>' +
-    '</div>';
-  }).join('') : '<div class="empty">no unmatched transactions</div>';
-}
-
-function esc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function refreshSms(silent) {
-  var rows = PTBridge.readSms(200);
-  PTStore.setTxns(rows);
-  PTBridge.log('sms rows=' + rows.length);
-  if (!silent) render();
-  return rows.length;
-}
-
-function runReconcile() {
-  var r = PTStore.reconcileAll();
-  PTStore.save();
-  pendingConfirms = r.confirm;
-  var flash = {};
-  r.merged.forEach(function (m) { flash[m.id] = 1; });
+  // --- Boot Initialization -------------------------------------
   stamp();
-  render(flash);
-  renderClarity();
-  PTBridge.log('reconcile merged=' + r.merged.length + ' confirm=' + r.confirm.length);
-  return r;
-}
-
-function doConfirm(i) {
-  var c = pendingConfirms[i];
-  if (!c) return;
-  var m = PTStore.confirmMerge(c.pending.id, c.cand.txn.id);
-  PTStore.save();
-  pendingConfirms.splice(i, 1);
-  var flash = {}; if (m) flash[m.id] = 1;
-  render(flash);
-}
-function dismissConfirm(i) { pendingConfirms.splice(i, 1); render(); }
-
-function capture(source, extra) {
-  var amt = parseFloat($('amt').value);
-  if (!(amt > 0)) { $('amt').focus(); return null; }
-  var p = PTStore.addPending({
-    amount: amt,
-    note: $('note').value || (extra && extra.note) || source,
-    source: source,
-    path: extra && extra.path || null,
-    purpose: (extra && extra.purpose) || '',
-    direction: 'debit'
-  });
-  $('amt').value = ''; $('note').value = '';
+  PTStore.load();
+  PTProof.load();
+  var initialSms = PTBridge.readSms(200);
+  PTStore.setTxns(initialSms);
+  var bootRec = PTStore.reconcileAll();
+  pendingConfirms = bootRec.confirm;
   PTStore.save();
   render();
-  // A capture immediately re-reads and attempts reconciliation, so the merge
-  // lands without another tap when the SMS is already in the inbox.
-  refreshSms(true);
-  runReconcile();
-  return p;
-}
-
-/* P0-1: a manual entry is measured from the FIRST keystroke in either field to
- * submission - that is the friction a person actually feels. Tapping a field,
- * typing an amount, typing a note and submitting is the tap count. */
-var manualStarted = false;
-function beginManual() {
-  if (manualStarted) return;
-  manualStarted = true;
-  PTProof.begin('manual', 1);   // the tap that focused the field
-}
-$('amt').addEventListener('focus', beginManual);
-$('note').addEventListener('focus', beginManual);
-$('amt').addEventListener('input', function () { PTProof.bumpTaps(0); });
-
-$('bManual').onclick = function () {
-  if (manualStarted) {
-    // amount + note + submit, on top of the focus tap
-    PTProof.bumpTaps(2);
-    PTProof.end(true);
-    manualStarted = false;
-  }
-  capture('manual');
-  renderProof();
-};
-
-/* P0-1: capture is measured from the button tap to the entry landing. Two taps
- * is the real interaction: open the sheet, then shoot/stop. */
-$('bPhoto').onclick = function () {
-  PTProof.begin('capture', 1);
-  PTCapture.startPhoto();
-};
-$('bVoice').onclick = function () {
-  PTProof.begin('capture', 1);
-  PTCapture.startVoice();
-};
-
-$('bAsk').onclick = function () { ask($('askBox').value.trim()); };
-$('askBox').addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') ask($('askBox').value.trim());
-});
-
-/* Capture sheets hand back an amount and a note. If extraction produced an
- * amount we create the pending entry straight away; if it did not, we prefill
- * what we have and leave the user to type the number. Never a dead end. */
-/* Voice that was a label or a question, not a spend. */
-PTCapture.onIntent(function (intent, text) {
-  if (intent.intent === 'query') {
-    var result = PTIntent.runQuery(intent, PTStore);
-    renderAnswer(text, intent, result);
-  } else {
-    applyContext(intent);
-  }
-});
-
-PTCapture.onResult(function (kind, r) {
-  if (r.note) $('note').value = r.note;
-  var amt = r.amount;
-  if (amt != null && amt > 0) {
-    // OCR glyph confusion is a guess; the bank SMS is fact. Prefer an amount
-    // the bank actually charged over one the camera thought it saw.
-    refreshSms(true);
-    var fix = PTExtract.reconcileAmount(amt, PTStore.txns);
-    if (fix.corrected) {
-      PTBridge.log('amount corrected ' + fix.from + ' -> ' + fix.amount +
-                   ' (' + fix.reason + ')');
-    }
-    amt = fix.amount;
-  }
-  if (amt != null && amt > 0) {
-    $('amt').value = amt;
-    PTProof.bumpTaps(1);            // the shoot / stop tap
-    var m = PTProof.end(true);
-    if (m) PTBridge.log('proof: ' + kind + ' ' + m.ms + 'ms ' + m.taps + ' taps');
-    capture(kind, { path: r.path, note: r.note, purpose: r.purpose });
-    renderProof();
-  } else {
-    /* Do NOT focus the field here. Focusing raises the soft keyboard while the
-     * capture sheet is still closing, which covers the screen and looks like a
-     * failure. The user can tap the field themselves. */
-    PTProof.cancel();
-    PTBridge.log(kind + ': no amount extracted, awaiting manual entry');
-  }
-});
-
-$('bRefresh').onclick = function () { refreshSms(); stamp(); };
-$('bReconcile').onclick = runReconcile;
-
-// native -> JS push. ContentObserver fires this when the inbox changes.
-window.PTOnEvent = function (name, payload) {
-  if (name === 'sms') {
-    var rows = PTBridge.asObj(payload, []);
-    PTStore.setTxns(rows || []);
-    PTBridge.log('observer push rows=' + (rows || []).length);
-    runReconcile();
-    return;
-  }
-  if (name === 'capture') {
-    var r = PTBridge.asObj(payload, { ok: false });
-    if (window.__ptCaptureCb) { var cb = window.__ptCaptureCb; window.__ptCaptureCb = null; cb(r); }
-    return;
-  }
-  if (name === 'cameraOpen') {
-    var c = PTBridge.asObj(payload, { ok: false });
-    if (window.__ptCameraCb) { var cc = window.__ptCameraCb; window.__ptCameraCb = null; cc(c); }
-    return;
-  }
-  if (name === 'vision') {
-    var v = PTBridge.asObj(payload, { ok: false });
-    if (window.__ptVisionCb) { var vc = window.__ptVisionCb; window.__ptVisionCb = null; vc(v); }
-    return;
-  }
-  if (name === 'transcript') {
-    var t = PTBridge.asObj(payload, { ok: false });
-    if (window.__ptTranscriptCb) { var tc = window.__ptTranscriptCb; window.__ptTranscriptCb = null; tc(t); }
-    return;
-  }
-  if (name === 'intent') {
-    var ir = PTBridge.asObj(payload, { ok: false });
-    if (window.__ptIntentCb) { var ic = window.__ptIntentCb; window.__ptIntentCb = null; ic(ir); }
-    return;
-  }
-  if (name === 'partial') {
-    var pp = PTBridge.asObj(payload, {});
-    if (window.__ptPartialCb && pp.text) window.__ptPartialCb(pp.text);
-    return;
-  }
-  if (name === 'permissions') { refreshSms(); }
-};
-
-stamp();
-// Restore the ledger BEFORE reading SMS, so previously reconciled rows are
-// known and their transactions are not offered again as unmatched.
-PTStore.load();
-PTProof.load();
-refreshSms();
-runReconcile();
-renderClarity();
-renderProof();
-renderRuntime();
-// The NPU bundle loads asynchronously; re-check briefly after boot.
-setTimeout(renderRuntime, 4000);
-setTimeout(renderRuntime, 12000);
-PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER +
-             ' restored=' + PTStore.reconciled.length + 'r/' + PTStore.pending.length + 'p');
+  renderRuntime();
+  setTimeout(renderRuntime, 3000);
+  setTimeout(renderRuntime, 8000);
+  PTBridge.log('ui ready device=' + PTBridge.isDevice + ' restored=' + PTStore.reconciled.length + 'r/' + PTStore.pending.length + 'p');
 </script>
-
 </body>
 </html>

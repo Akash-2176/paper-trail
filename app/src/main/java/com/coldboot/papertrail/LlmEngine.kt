@@ -70,6 +70,21 @@ class LlmEngine(private val ctx: Context) {
     @Volatile private var loading = false
     @Volatile private var computeUnit = "npu"
 
+    /**
+     * Fired once the NPU load has finished, whether it succeeded or not.
+     * MainActivity uses it to start the VLM only after the DSP is free: both
+     * engines probing Hexagon at once crashes inside libggml-hexagon.so.
+     */
+    @Volatile var onSettled: (() -> Unit)? = null
+
+    private fun settle() {
+        val cb = onSettled
+        onSettled = null
+        try { cb?.invoke() } catch (e: Throwable) {
+            Log.e(TAG, "llm: settle callback failed: ${e.message}")
+        }
+    }
+
     /** The extracted bundle directory, if it is present and looks complete. */
     private fun bundleDir(): File? {
         val d = File(BUNDLE_DIR)
@@ -99,6 +114,26 @@ class LlmEngine(private val ctx: Context) {
         return null
     }
 
+    /**
+     * ModelConfig for the qairt/NPU path.
+     *
+     * The plugin rejects several llama.cpp-shaped options outright. Its own
+     * binary carries the messages:
+     *   "--nctx (n_ctx) is not supported by the qairt plugin"
+     *   "--ngl (n_gpu_layers) is not supported by the qairt plugin"
+     *   "--stop / --stop-file (stop sequences) is not supported by the qairt plugin"
+     *
+     * A default ModelConfig() populates those fields, which is why creation
+     * failed with "Parameter not supported by this plugin" in ~3ms - before any
+     * file was opened, so it was never a bad bundle. Zero them so the loader
+     * takes the values from the bundle's own genie_config.json, which already
+     * declares context size 4096, the vocab, and the HTP backend.
+     */
+    private fun qairtConfig(): ModelConfig = ModelConfig().apply {
+        nCtx = 0          // context comes from genie_config.json
+        nGpuLayers = 0    // meaningless on Hexagon; qairt rejects it
+    }
+
     private fun tokenizerIn(root: File): File? =
         root.listFiles()?.firstOrNull { it.name.equals("tokenizer.json", true) }
 
@@ -123,7 +158,33 @@ class LlmEngine(private val ctx: Context) {
     /** Fire-and-forget load. Safe to call repeatedly. */
     fun warmUp() {
         if (!initStarted.compareAndSet(false, true)) return
-        scope.launch { load() }
+        /* GenieXSdk.init() is what registers the JNI natives. Calling
+         * Llm.create before that completes throws "No implementation found for
+         * com.geniex.sdk.jni.Llm.create" - seen twice on device when warmUp
+         * raced the SDK init at launch.
+         *
+         * Class.forName is not a sufficient guard: the class resolves fine
+         * while its native methods are still unregistered. So drive init here
+         * and load only from its success callback. init() is idempotent, and
+         * VisionEngine calling it too is harmless. */
+        try {
+            GenieXSdk.getInstance().init(ctx, object : GenieXSdk.InitCallback {
+                override fun onSuccess() {
+                    Log.i(TAG, "llm: sdk ready, loading bundle")
+                    scope.launch { load() }
+                }
+
+                override fun onFailure(msg: String) {
+                    lastError = "sdk init: $msg"
+                    Log.e(TAG, "llm: $lastError")
+                    settle()
+                }
+            })
+        } catch (e: Throwable) {
+            lastError = "sdk init threw: ${e.message}"
+            Log.e(TAG, "llm: $lastError")
+            settle()
+        }
     }
 
     /** Retry after a bundle has been pushed, without restarting the app. */
@@ -139,34 +200,42 @@ class LlmEngine(private val ctx: Context) {
         if (root == null) {
             lastError = "no AI Hub bundle at $BUNDLE_DIR (needs metadata.json + *.bin)"
             Log.w(TAG, "llm: $lastError")
+            settle()
             return
         }
         val tok = tokenizerIn(root)
         if (tok == null) {
             lastError = "tokenizer.json missing from ${root.name}"
             Log.w(TAG, "llm: $lastError")
+            settle()
             return
         }
 
         loading = true
         try {
-            /* NPU first - that is the whole point of this path. If Hexagon
-             * refuses, try the same qairt bundle on CPU rather than leaving the
-             * model unusable, but record honestly which one actually ran. The
-             * badge and the status object report the real compute unit, never
-             * the requested one: a claim of NPU execution has to be true. */
-            val units = listOf(
-                // Use each enum's own wire value rather than lowercasing its
-                // name: the two happen to match today, but the SDK carries a
-                // separate `value` field and that is the contract.
-                ComputeUnitValue.NPU.value ?: "npu",
-                ComputeUnitValue.CPU.value ?: "cpu"
-            )
+            /* NPU only. The plugin states it plainly at runtime:
+             * "qairt plugin only supports NPU inference; ignoring device='cpu'".
+             * Retrying the same bundle as CPU was therefore a no-op that only
+             * produced a duplicate, misleading error line. CPU coverage comes
+             * from the separate llama.cpp/GGUF path, not from here. */
+            val units = listOf(ComputeUnitValue.NPU.value ?: "npu")
+            val cfg0 = qairtConfig()
+            Log.i(TAG, "llm: qairt cfg nCtx=" + cfg0.nCtx + " nGpu=" + cfg0.nGpuLayers +
+                " nThreads=" + cfg0.nThreads + " nBatch=" + cfg0.nBatch)
             for (unit in units) {
+                /* Pass a FILE inside the bundle, not the directory.
+                 *
+                 * The loader takes the parent of model_path as the bundle root:
+                 * given the directory it resolved one level too high and
+                 * reported "tokenizer.json not found in /data/local/tmp/models".
+                 * Pointing at genie_config.json makes the parent the bundle
+                 * itself, which is where the shards and tokenizer actually are. */
+                val modelArg = File(root, "genie_config.json")
+                    .takeIf { it.isFile }?.absolutePath ?: root.absolutePath
                 val input = LlmCreateInput(
-                    root.absolutePath,
+                    modelArg,
                     tok.absolutePath,
-                    ModelConfig(),
+                    qairtConfig(),
                     GenieXSdk.PLUGIN_ID_QAIRT,
                     unit
                 )
@@ -198,6 +267,7 @@ class LlmEngine(private val ctx: Context) {
             Log.e(TAG, "llm: $lastError")
         } finally {
             loading = false
+            settle()
         }
     }
 
