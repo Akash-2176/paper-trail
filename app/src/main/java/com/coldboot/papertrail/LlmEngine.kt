@@ -150,35 +150,51 @@ class LlmEngine(private val ctx: Context) {
 
         loading = true
         try {
-            /* runtime_id qairt + compute_unit npu is the whole point: this is
-             * the Hexagon path, not llama.cpp on CPU. If the NPU refuses, we
-             * report it rather than quietly running somewhere slower - a claim
-             * of NPU execution has to be true. */
-            val input = LlmCreateInput(
-                root.absolutePath,
-                tok.absolutePath,
-                ModelConfig(),
-                GenieXSdk.PLUGIN_ID_QAIRT,
-                ComputeUnitValue.NPU.name.lowercase()
+            /* NPU first - that is the whole point of this path. If Hexagon
+             * refuses, try the same qairt bundle on CPU rather than leaving the
+             * model unusable, but record honestly which one actually ran. The
+             * badge and the status object report the real compute unit, never
+             * the requested one: a claim of NPU execution has to be true. */
+            val units = listOf(
+                // Use each enum's own wire value rather than lowercasing its
+                // name: the two happen to match today, but the SDK carries a
+                // separate `value` field and that is the contract.
+                ComputeUnitValue.NPU.value ?: "npu",
+                ComputeUnitValue.CPU.value ?: "cpu"
             )
-            val built = LlmWrapper.builder()
-                .llmCreateInput(input)
-                .dispatcher(Dispatchers.IO)
-                .build()
-            built.fold(
-                onSuccess = {
-                    llm = it
-                    computeUnit = "npu"
-                    lastError = null
-                    Log.i(TAG, "llm: Qwen3-1.7B loaded on NPU from ${root.name}")
-                },
-                onFailure = {
-                    lastError = "npu load failed: ${it.message}"
-                    Log.e(TAG, "llm: $lastError")
-                }
-            )
+            for (unit in units) {
+                val input = LlmCreateInput(
+                    root.absolutePath,
+                    tok.absolutePath,
+                    ModelConfig(),
+                    GenieXSdk.PLUGIN_ID_QAIRT,
+                    unit
+                )
+                val built = LlmWrapper.builder()
+                    .llmCreateInput(input)
+                    .dispatcher(Dispatchers.IO)
+                    .build()
+                var ok = false
+                built.fold(
+                    onSuccess = {
+                        llm = it
+                        computeUnit = unit
+                        lastError = null
+                        ok = true
+                        Log.i(
+                            TAG,
+                            "llm: Qwen3-1.7B loaded on ${unit.uppercase()} from ${root.name}"
+                        )
+                    },
+                    onFailure = {
+                        lastError = "$unit load failed: ${it.message}"
+                        Log.e(TAG, "llm: $lastError")
+                    }
+                )
+                if (ok) break
+            }
         } catch (e: Throwable) {
-            lastError = "npu load threw: ${e.message}"
+            lastError = "load threw: ${e.message}"
             Log.e(TAG, "llm: $lastError")
         } finally {
             loading = false

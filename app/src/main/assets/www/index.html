@@ -278,8 +278,10 @@ function renderRuntime() {
   var b = $('npuBadge');
   var st = PTBridge.llmStatus();
   if (st && st.available) {
-    b.className = 'marker npu';
-    b.textContent = 'NPU · Qwen3-1.7B';
+    // Report the compute unit that actually loaded, not the one requested.
+    var onNpu = String(st.computeUnit || '').toLowerCase() === 'npu';
+    b.className = 'marker ' + (onNpu ? 'npu' : 'cpu');
+    b.textContent = (onNpu ? 'NPU' : 'CPU') + ' · Qwen3-1.7B';
   } else if (st && st.loading) {
     b.className = 'marker cpu';
     b.textContent = 'NPU loading…';
