@@ -25,7 +25,11 @@ $Adb        = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 $Root       = $PSScriptRoot
 $Apk        = Join-Path $Root 'app\build\outputs\apk\debug\app-debug.apk'
 $Page       = Join-Path $Root 'app\src\main\assets\www\index.html'
-$WeightsSrc = 'E:\01-models'
+# Local stage is authoritative: the USB stick has unmounted itself mid-event once
+# already. Falls back to the stick only if the stage is absent.
+$WeightsSrc = if (Test-Path (Join-Path $Root '.weights-stage')) {
+    Join-Path $Root '.weights-stage'
+} else { 'E:\01-models' }
 $WeightsDst = '/data/local/tmp/models'
 
 function Say($msg, $colour = 'Gray') { Write-Host $msg -ForegroundColor $colour }
