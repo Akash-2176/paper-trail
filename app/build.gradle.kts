@@ -9,10 +9,12 @@ android {
 
     defaultConfig {
         applicationId = "com.coldboot.papertrail"
-        minSdk = 26
+        minSdk = 27   // GenieX 0.4.0 requires 27; loaner is Android 16 so no practical cost
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
+        // GenieX ships arm64-v8a only; the loaner is arm64.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     buildTypes {
@@ -56,4 +58,9 @@ dependencies {
 
     // ML Kit OCR — receipt path. Offline resolve of this is the gate.
     implementation("com.google.mlkit:text-recognition:16.0.1")
+
+    // GenieX — on-device inference (NPU via qairt, llama_cpp fallback).
+    // 0.4.0 is what is actually in the offline cache; docs say 0.3.1.
+    implementation("com.qualcomm.qti:geniex-android:0.4.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
