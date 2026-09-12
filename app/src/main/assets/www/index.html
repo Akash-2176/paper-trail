@@ -173,6 +173,20 @@
     border-top: 1px solid var(--card-border); padding: 10px 12px 14px;
     z-index: 40; display: flex; flex-direction: column; gap: 8px;
   }
+  /* Banner while evidence is being attached to a specific payment, so the
+     next input is obviously not a new spend. */
+  .attachBar {
+    display: flex; align-items: center; gap: 8px;
+    background: #10243d; border: 1px solid #1b3a5e;
+    border-radius: 8px; padding: 7px 10px; margin-bottom: 8px;
+    font-size: 12px; color: #7cc0ff;
+  }
+  .attachBar .aWho { flex: 1 1 auto; }
+  .attachBar .aCancel {
+    background: none; border: none; color: #7e8794;
+    font-size: 12px; padding: 2px 6px;
+  }
+
   .actionTop { display: flex; gap: 8px; align-items: center; }
   .actionTop input {
     flex: 1 1 auto; background: var(--card-bg); border: 1px solid #2b323c;
@@ -246,6 +260,17 @@
     padding: 0 6px; font-size: 10px; font-weight: 700;
   }
   .tab.active .tabCount { background: var(--accent-blue); color: #fff; }
+
+  /* Ledger filters. Visually lighter than the mode tabs above them, so the
+     hierarchy reads: which mode am I in, then which slice of it. */
+  .filters { display: flex; gap: 6px; margin: 0 0 10px; }
+  .filt {
+    flex: 1 1 0; padding: 6px 6px; font-size: 11px; font-weight: 600;
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); border-radius: 0;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .filt.active { color: var(--text-primary); border-bottom-color: var(--accent-blue); }
 
   /* --- Payment row ------------------------------------------------ */
   /* One row shape for every payment. What differs is the state stripe and
@@ -338,39 +363,55 @@
   <span class="marker" id="marker" style="margin-left:6px">boot</span>
 </header>
 
-<!-- Clarity Dashboard Header -->
-<div class="clarity">
-  <div class="cbox" id="boxUnexplained">
-    <div class="big" id="unexCount">–</div>
-    <div class="lbl">Unexplained</div>
-  </div>
-  <div class="cbox" id="boxStreak">
-    <div class="big" id="streakDays">0</div>
-    <div class="lbl">Day streak</div>
-  </div>
-  <div class="cbox" id="boxScore">
-    <div class="big" id="clarityPct">–</div>
-    <div class="lbl">Clarity</div>
-  </div>
+<!-- Two top-level tabs. The ledger and the conversation are different modes of
+     working, not two things to scroll past each other: answering a question
+     used to scroll the payment list away, and the payment list pushed answers
+     off screen. -->
+<div class="tabs" id="mainTabs">
+  <button class="tab active" data-mode="ledger">Ledger</button>
+  <button class="tab" data-mode="ask">Ask <span class="tabCount" id="tabAskCount"></span></button>
 </div>
 
-<!-- Conversational Canvas / Chat Feed -->
-<!-- Chat answers appear here. The old standing "agent" card was a permanent
-     instruction panel occupying prime space; the input placeholder says the
-     same thing at the moment it is needed. -->
-<div class="feed" id="chatFeed"></div>
+<div id="modeLedger">
+  <div class="clarity">
+    <div class="cbox" id="boxUnexplained">
+      <div class="big" id="unexCount">–</div>
+      <div class="lbl">Unexplained</div>
+    </div>
+    <div class="cbox" id="boxStreak">
+      <div class="big" id="streakDays">0</div>
+      <div class="lbl">Day streak</div>
+    </div>
+    <div class="cbox" id="boxScore">
+      <div class="big" id="clarityPct">–</div>
+      <div class="lbl">Clarity</div>
+    </div>
+  </div>
 
-<!-- ONE payment list.
-     Pending / reconciled / unmerged were the reconciliation engine's internal
-     queues shown as three separate sections. A person thinks in payments, so
-     state is now a property of a row rather than a heading above it. -->
-<div class="tabs" id="tabs">
-  <button class="tab active" data-view="all">All</button>
-  <button class="tab" data-view="unexplained">Needs evidence <span class="tabCount" id="tabUnex">0</span></button>
-  <button class="tab" data-view="done">Explained <span class="tabCount" id="tabDone">0</span></button>
+  <!-- Filters for the one payment list. Pending / reconciled / unmerged were
+       the reconciliation engine's internal queues shown as three sections; a
+       person thinks in payments, so state is a property of a row instead. -->
+  <div class="filters" id="tabs">
+    <button class="filt active" data-view="all">All</button>
+    <button class="filt" data-view="unexplained">Needs evidence <span class="tabCount" id="tabUnex">0</span></button>
+    <button class="filt" data-view="done">Explained <span class="tabCount" id="tabDone">0</span></button>
+  </div>
+
+  <div id="ledger"></div>
 </div>
 
-<div id="ledger"></div>
+<div id="modeAsk" style="display:none">
+  <div class="feed" id="chatFeed"></div>
+  <div class="zero" id="askHint">
+    <div class="icon">💬</div>
+    <div class="head">Ask about your spending</div>
+    <div class="sub">
+      "how much on petrol"<br>
+      "what did I spend on food"<br>
+      "did I pay twice"
+    </div>
+  </div>
+</div>
 
 <!-- Row detail. Opened by tapping a payment. -->
 <div class="sheet hidden" id="detailSheet">
@@ -385,6 +426,7 @@
 
 <!-- Fixed Bottom Smart Action Bar -->
 <div class="actionBar">
+  <div class="attachBar" id="attachBar" style="display:none"></div>
   <div class="actionTop">
     <input id="smartInput" type="text" placeholder="Add spend or ask a question..." enterkeyhint="send">
     <button class="actionBtn primary" id="bSend">➔</button>
@@ -715,12 +757,95 @@
   function closeDetail() { $('detailSheet').className = 'sheet hidden'; }
 
   /** From a row straight into capture, so the count has a route to zero. */
+  /* --- Attaching evidence to a specific payment --------------------
+   *
+   * "Add evidence" previously only changed the input placeholder. Whatever the
+   * user typed next went through the normal capture path and created a SECOND
+   * pending entry, so explaining a payment silently duplicated it and the
+   * unexplained count never fell.
+   *
+   * There is now an explicit target. While it is set, typed text, a photo or a
+   * voice note attach to THAT payment instead of creating a new one. */
+  var attachTarget = null;
+
   function explainThis(key) {
     closeDetail();
     var p = rowIndex[key];
-    if (p) $('smartInput').placeholder = 'What was ' + money(p.amount) + ' for?';
+    if (!p) return;
+    attachTarget = p;
+    setMode('ledger');
+    showAttachBar(p);
+    $('smartInput').placeholder = 'What was ' + money(p.amount) + ' for?';
     $('smartInput').focus();
   }
+
+  /** A visible banner, so it is obvious the next input is not a new spend. */
+  function showAttachBar(p) {
+    var bar = $('attachBar');
+    bar.innerHTML =
+      '<span class="aWho">Explaining ' + money(p.amount) +
+        (p.who ? ' · ' + esc(p.who) : '') + '</span>' +
+      '<button class="aCancel" onclick="cancelAttach()">Cancel</button>';
+    bar.style.display = 'flex';
+  }
+
+  function cancelAttach() {
+    attachTarget = null;
+    $('attachBar').style.display = 'none';
+    $('smartInput').placeholder = mode === 'ask'
+      ? 'Ask about your spending...' : 'Add a spend, e.g. 250 for lunch';
+  }
+
+  /**
+   * Attach evidence to the targeted payment.
+   *
+   * A bank row (state 'bare') has no capture to carry the note, so one is
+   * created and merged with that exact transaction - which is what the user
+   * meant by explaining it. A pending or reconciled row just gains the purpose.
+   */
+  function applyAttach(text, extra) {
+    var p = attachTarget;
+    if (!p) return false;
+    var purpose = (text || '').trim();
+    var path = extra && extra.path;
+    if (!purpose && !path) return false;
+
+    if (p.state === 'bare') {
+      var t = p.rec;
+      var pend = PTStore.addPending({
+        amount: t.amount,
+        note: purpose || t.counterparty || 'evidence',
+        purpose: purpose,
+        source: (extra && extra.source) || 'manual',
+        path: path || null,
+        ts: t.ts,
+        direction: t.direction || 'debit'
+      });
+      // Bind to the transaction the user actually tapped, rather than letting
+      // the matcher pick a different row with the same amount.
+      PTStore.confirmMerge(pend.id, t.id);
+    } else {
+      var rec = p.state === 'done' ? p.rec.pending : p.rec;
+      if (purpose) {
+        rec.purpose = purpose;
+        if (!rec.note || rec.note === 'Capture') rec.note = purpose;
+      }
+      if (path) {
+        rec.path = path;
+        rec.source = (extra && extra.source) || rec.source;
+      }
+    }
+
+    PTStore.save();
+    var flash = {}; flash[p.rec.id] = 1;
+    cancelAttach();
+    render(flash);
+    appendChat('<div class="a">Attached to <b>' + money(p.amount) + '</b>' +
+      (purpose ? ' · ' + esc(purpose) : '') + '</div>', 'llm');
+    setMode('ledger');
+    return true;
+  }
+
 
   function doConfirm(i) {
     var c = pendingConfirms[i];
@@ -735,11 +860,21 @@
 
   // --- Conversational Feed Append -------------------------------
   function appendChat(text, type, extraClass) {
+    // An answer belongs in the Ask tab; switch there so it is not written to a
+    // pane the user cannot see.
+    if (typeof setMode === 'function' && mode !== 'ask') setMode('ask');
+    var hint = $('askHint');
+    if (hint) hint.style.display = 'none';
     var div = document.createElement('div');
     div.className = 'chatMsg ' + (type === 'user' ? 'chatUser' : 'chatLlm') + (extraClass ? ' ' + extraClass : '');
     div.innerHTML = text;
     $('chatFeed').appendChild(div);
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    /* Scroll the NEW MESSAGE into view, not the bottom of the document.
+     *
+     * scrollTo(scrollHeight) jumped past the entire payment list on every
+     * input, so answering a question threw the user to the oldest row. The feed
+     * sits above the ledger, so the answer is what should be on screen. */
+    div.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   // --- Unified Smart Input Handler -----------------------------
@@ -765,6 +900,9 @@
 
   function handleSmartInput(text) {
     if (!text) return;
+    // An open attach target claims the input: this is an explanation of an
+    // existing payment, not a new one.
+    if (attachTarget && applyAttach(text)) return;
     appendChat(esc(text), 'user');
 
     PTIntent.route(text, function(res) {
@@ -879,13 +1017,32 @@
     render(flash);
   };
 
-  // Tabs filter the one list; they do not navigate anywhere.
-  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+  /* Mode tabs switch between the ledger and the conversation. */
+  var mode = 'ledger';
+  function setMode(m) {
+    mode = m;
+    Array.prototype.forEach.call(document.querySelectorAll('#mainTabs .tab'), function (x) {
+      x.className = 'tab' + (x.getAttribute('data-mode') === m ? ' active' : '');
+    });
+    $('modeLedger').style.display = m === 'ledger' ? '' : 'none';
+    $('modeAsk').style.display = m === 'ask' ? '' : 'none';
+    $('smartInput').placeholder = m === 'ask'
+      ? 'Ask about your spending...'
+      : 'Add a spend, e.g. 250 for lunch';
+    if (m === 'ask') $('askHint').style.display =
+      $('chatFeed').children.length ? 'none' : '';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#mainTabs .tab'), function (b) {
+    b.onclick = function () { setMode(b.getAttribute('data-mode')); };
+  });
+
+  // Filters slice the one payment list; they do not navigate anywhere.
+  Array.prototype.forEach.call(document.querySelectorAll('.filt'), function (b) {
     b.onclick = function () {
-      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (x) {
-        x.className = 'tab';
+      Array.prototype.forEach.call(document.querySelectorAll('.filt'), function (x) {
+        x.className = 'filt';
       });
-      b.className = 'tab active';
+      b.className = 'filt active';
       view = b.getAttribute('data-view');
       render();
     };
@@ -911,6 +1068,11 @@
   });
 
   PTCapture.onResult(function(kind, r) {
+    if (attachTarget) {
+      // A receipt or voice note captured while explaining a payment belongs to
+      // THAT payment, not to a new pending entry.
+      if (applyAttach(r.note || r.purpose || '', { path: r.path, source: kind })) return;
+    }
     var amt = r.amount;
     if (amt != null && amt > 0) {
       var p = PTStore.addPending({
