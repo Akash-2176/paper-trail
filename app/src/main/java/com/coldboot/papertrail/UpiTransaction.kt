@@ -259,10 +259,52 @@ object UpiStore {
      * recover after process death, when the pending id was lost with the
      * Activity.
      */
+    /**
+     * How long a launched payment stays claimable by an incoming result.
+     *
+     * A UPI authorisation is a minutes-long interaction, not an hours-long
+     * one. The bound matters because attributing a result to the WRONG
+     * transaction is a serious error: without it, a payment abandoned on
+     * Monday would still be the newest "in flight" record on Tuesday and
+     * would silently absorb Tuesday's result, marking the wrong payee paid.
+     */
+    private const val IN_FLIGHT_WINDOW_MS = 30 * 60 * 1000L
+
     fun inFlight(ctx: Context): UpiTransaction? = synchronized(lock) {
+        val now = System.currentTimeMillis()
         read(ctx)
             .filter { it.state == UpiState.PAYMENT_INITIATED }
+            .filter { now - (it.initiatedAt ?: it.createdAt) <= IN_FLIGHT_WINDOW_MS }
             .maxByOrNull { it.initiatedAt ?: it.createdAt }
+    }
+
+    /**
+     * Retire launched payments we never heard back about.
+     *
+     * Called at launch. A transaction stuck in PAYMENT_INITIATED means the
+     * user left the UPI app by a route that never returned a result - the
+     * outcome is genuinely unknown, and saying so is the honest record. It is
+     * NOT failed: the money may well have moved, and a bank SMS can still
+     * reconcile it later.
+     */
+    fun expireStale(ctx: Context): Int = synchronized(lock) {
+        val now = System.currentTimeMillis()
+        val list = read(ctx)
+        var n = 0
+        list.forEach {
+            if (it.state == UpiState.PAYMENT_INITIATED &&
+                now - (it.initiatedAt ?: it.createdAt) > IN_FLIGHT_WINDOW_MS
+            ) {
+                it.state = UpiState.UNKNOWN
+                it.completedAt = now
+                n++
+            }
+        }
+        if (n > 0) {
+            write(ctx, list)
+            Log.i(TAG, "upi: $n abandoned payment(s) marked unknown")
+        }
+        n
     }
 
     fun update(ctx: Context, id: String, edit: (UpiTransaction) -> Unit): UpiTransaction? =

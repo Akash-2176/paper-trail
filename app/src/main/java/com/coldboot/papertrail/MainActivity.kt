@@ -36,6 +36,11 @@ class MainActivity : AppCompatActivity() {
         // Copy-from-assets on first run; never clobbers a hot-reloaded page.
         WebHost.seedFromAssets(this)
 
+        /* Retire payments we launched but never got a result for. Leaving one
+         * "in flight" would let a much later result attach to it and mark the
+         * wrong payee paid. */
+        UpiStore.expireStale(this)
+
         // SPIKE-FINDINGS §3: foreground service is required, not defensive.
         KeepAliveService.start(this)
 

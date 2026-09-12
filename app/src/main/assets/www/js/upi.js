@@ -173,7 +173,11 @@ var PTUpi = (function () {
         : '<div class="upiAmountEntry">' +
             '<span class="upiCur">₹</span>' +
             '<input id="upiAmt" type="number" inputmode="decimal" ' +
-              'placeholder="0" step="0.01" min="1">' +
+              'placeholder="0" step="0.01" min="1"' +
+              /* Carried over on a retry so the user does not retype what they
+               * already entered; still editable, because a wrong amount is a
+               * reason people retry. */
+              (qr.amount != null ? ' value="' + Number(qr.amount) + '"' : '') + '>' +
           '</div>' +
           '<div class="hint">Enter the amount to pay</div>') +
       '<input id="upiNote" class="upiNote" type="text" maxlength="50" ' +
@@ -186,7 +190,10 @@ var PTUpi = (function () {
       '</div>');
 
     el('upiBack').onclick = function () {
-      // Back to scanning rather than out of the flow entirely.
+      /* Back to where the user came from. Re-opening the scanner is right
+       * after a scan, but wrong on the retry path - there is no QR in front
+       * of them and the payee is already known. */
+      if (qr.fromRetry) { close(); return; }
       PTBridge.resumeQrScan();
       startScan();
     };
@@ -305,12 +312,55 @@ var PTUpi = (function () {
         ? '<div class="upiUnverified">Not yet verified against your bank</div>' : '') +
       (paid ? contextBlock() : '') +
       '<div class="shotRow">' +
-        '<button id="upiDone" class="' + (paid ? '' : 'primary big') + '">' +
+        /* A failed or cancelled payment is a dead end without this: the money
+         * still needs paying and the payee details are already known, so
+         * making the user rescan the same QR is pointless friction. A pending
+         * or unknown one is deliberately NOT retryable - paying again when the
+         * first attempt may yet succeed is how people pay twice. */
+        (retryable(txn.state)
+          ? '<button id="upiRetry" class="primary big">Try again</button>' : '') +
+        '<button id="upiDone" class="' + (paid || retryable(txn.state) ? '' : 'primary big') + '">' +
           (paid ? 'Skip' : 'Done') + '</button>' +
       '</div>');
 
     el('upiDone').onclick = function () { finish(txn); };
+    var retry = el('upiRetry');
+    if (retry) retry.onclick = function () { retryPayment(txn); };
     if (paid) wireContext(txn);
+  }
+
+  function retryable(state) {
+    return state === 'FAILED' || state === 'CANCELLED';
+  }
+
+  /**
+   * Pay the same payee again after a failure.
+   *
+   * A NEW transaction is created rather than the old one being relaunched:
+   * the failed attempt is evidence and must keep its own record and id. The
+   * native side refuses to launch anything that is not CREATED, so reusing it
+   * would be rejected anyway - and rightly.
+   */
+  function retryPayment(txn) {
+    PTBridge.upiClearPendingResult();
+    var qr = {
+      ok: true,
+      vpa: txn.vpa,
+      payeeName: txn.payeeName,
+      merchantCode: txn.merchantCode || '',
+      // The failed attempt's reference is not reused - a fresh one is minted
+      // with the new transaction so the two never collide in a statement.
+      refId: '',
+      note: txn.note || '',
+      amount: txn.amount,
+      currency: txn.currency || 'INR',
+      // The amount is re-confirmed rather than assumed: the user may be
+      // retrying precisely because it was wrong.
+      amountLocked: false,
+      fromRetry: true
+    };
+    lastQr = qr;
+    confirmScreen(qr);
   }
 
   function contextBlock() {
