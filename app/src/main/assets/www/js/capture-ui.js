@@ -12,6 +12,7 @@ var PTCapture = (function () {
   var voiceStart = 0;
   var transcriptTimer = null;
   var voiceFinished = false;
+  var recordingWav = false;
 
   function el(id) { return document.getElementById(id); }
 
@@ -119,14 +120,23 @@ var PTCapture = (function () {
 
   function startVoice() {
     st = PTBridge.speechStatus();
-    // Keep recording the WAV alongside: it is the durable artifact, and it is
-    // already 16kHz mono for a future Whisper path.
-    var r = PTBridge.startRecording();
     voiceStart = Date.now();
     voiceFinished = false;
 
+    /* ONE microphone client at a time.
+     *
+     * Recording our own WAV while the recogniser also listens makes two clients
+     * contend for the mic - ours opens AudioSource.MIC, the recogniser opens
+     * VOICE_RECOGNITION. The first attempt after launch wins the race and every
+     * later one fails, which is exactly the "worked once, then stopped" symptom
+     * seen on device.
+     *
+     * When a recogniser is available it owns the mic and the transcript is the
+     * artifact we actually want. The WAV is only recorded when there is no
+     * recogniser, so a voice note is still captured either way. */
+    var r = null;
     if (!st || !st.available) {
-      // No recogniser: still capture audio, just say plainly there is no transcript.
+      r = PTBridge.startRecording();
       if (!r || !r.ok) {
         openSheet('Voice', '<div class="hint err">mic unavailable: ' +
           esc((r && r.error) || '?') + '</div>');
@@ -134,6 +144,7 @@ var PTCapture = (function () {
         return;
       }
     }
+    recordingWav = !!(r && r.ok);
     openSheet('Listening',
       '<div class="listening"><span class="dot"></span><span class="dot"></span>' +
         '<span class="dot"></span></div>' +
@@ -166,7 +177,8 @@ var PTCapture = (function () {
 
     el('ptCancelRec').onclick = function () {
       try { PTBridge.cancelListening(); } catch (e) {}
-      try { PTBridge.stopRecording(); } catch (e) {}
+      if (recordingWav) { try { PTBridge.stopRecording(); } catch (e) {} }
+      recordingWav = false;
       closeSheet();
     };
 
@@ -199,7 +211,10 @@ var PTCapture = (function () {
 
     var secs = ((Date.now() - voiceStart) / 1000).toFixed(1);
     var wav = {};
-    try { wav = PTBridge.stopRecording() || {}; } catch (e) {}
+    if (recordingWav) {
+      try { wav = PTBridge.stopRecording() || {}; } catch (e) {}
+      recordingWav = false;
+    }
 
     var text = (res && res.text) || '';
     var amount = text ? PTExtract.parseAmount(text) : null;

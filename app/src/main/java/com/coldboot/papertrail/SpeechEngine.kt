@@ -57,6 +57,17 @@ class SpeechEngine(private val act: AppCompatActivity) {
     private var attempts = 0
 
     /**
+     * Locales that failed with a missing language pack in this process. The
+     * result does not change between attempts, so re-trying them costs ~1.7s of
+     * dead time on every single capture. Remembering them makes the second and
+     * later runs start on the configuration that actually works.
+     */
+    private val deadLocales = mutableSetOf<String>()
+
+    /** Set once the on-device path is known to have no usable pack at all. */
+    private var onDeviceUnusable = false
+
+    /**
      * isOnDeviceRecognitionAvailable() returns true whenever the service exists,
      * even with no language pack installed - so it is not sufficient on its own.
      * Availability is only proven once a locale actually starts.
@@ -92,8 +103,13 @@ class SpeechEngine(private val act: AppCompatActivity) {
             return
         }
 
+        // Once the on-device path is known to have no usable pack, go straight
+        // to the recogniser that worked rather than replaying the failures.
+        useSystemRecognizer = onDeviceUnusable
         localeIndex = 0
-        useSystemRecognizer = false
+        while (!useSystemRecognizer && localeIndex < LOCALES.size - 1 &&
+            deadLocales.contains(LOCALES[localeIndex])
+        ) localeIndex++
         attempts = 0
         onResult = onDone
         act.runOnUiThread { attempt() }
@@ -166,13 +182,20 @@ class SpeechEngine(private val act: AppCompatActivity) {
          * ERROR_TOO_MANY_REQUESTS (11) - the service needs a moment to tear the
          * old session down. Observed on device. A short delay makes the retry
          * land cleanly. */
-        if (localeIndex + 1 < LOCALES.size) {
-            localeIndex++
+        // Skip locales already known to have no pack in this process.
+        var next = localeIndex + 1
+        while (!useSystemRecognizer && next < LOCALES.size &&
+            deadLocales.contains(LOCALES[next])
+        ) next++
+
+        if (next < LOCALES.size) {
+            localeIndex = next
             act.window.decorView.postDelayed({ attempt() }, RETRY_DELAY_MS)
             return true
         }
         if (!useSystemRecognizer) {
             useSystemRecognizer = true
+            onDeviceUnusable = true
             localeIndex = 0
             act.window.decorView.postDelayed({ attempt() }, RETRY_DELAY_MS)
             return true
@@ -282,6 +305,10 @@ class SpeechEngine(private val act: AppCompatActivity) {
              * loaner for en-IN. Fall through the other locales, then to the
              * system recogniser, before reporting failure. */
             if (isSetupError(error)) {
+                // 13 is specific to the locale; 11 is transient contention.
+                if (error == 13 && !useSystemRecognizer) {
+                    deadLocales.add(LOCALES.getOrElse(localeIndex) { "" })
+                }
                 Log.w(TAG, "asr: error $error on locale index $localeIndex, trying next")
                 listening = false
                 if (tryNext()) return

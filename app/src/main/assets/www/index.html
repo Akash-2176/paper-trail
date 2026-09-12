@@ -307,7 +307,9 @@ PTCapture.onResult(function (kind, r) {
     $('amt').value = amt;
     capture(kind, { path: r.path, note: r.note });
   } else {
-    $('amt').focus();
+    /* Do NOT focus the field here. Focusing raises the soft keyboard while the
+     * capture sheet is still closing, which covers the screen and looks like a
+     * failure. The user can tap the field themselves. */
     PTBridge.log(kind + ': no amount extracted, awaiting manual entry');
   }
 });
