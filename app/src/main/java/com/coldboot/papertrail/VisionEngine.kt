@@ -291,6 +291,10 @@ class VisionEngine(private val ctx: Context) {
             )
             val messages = arrayOf(msg)
             val cfg = engine.injectMediaPathsToConfig(messages, GenerationConfig())
+            /* Default maxTokens truncated the answer before the TOTAL line, which
+             * is the one line that matters. A receipt transcription is short, so
+             * give it room. */
+            cfg.maxTokens = 320
             Log.i(
                 TAG, "vision: cfg imageCount=" + cfg.imageCount +
                     " paths=" + (cfg.imagePaths?.joinToString(",") ?: "none")

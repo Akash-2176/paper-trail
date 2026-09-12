@@ -13,11 +13,21 @@ var PTExtract = (function () {
 
   /* Spoken and printed amounts. Handles "rupees 250", "250 rupees", "Rs.250",
    * "₹1,250.50", and bare numbers as a last resort. */
+  /* Ordered by trust. A line labelled TOTAL beats a bare currency figure, which
+   * beats anything else - on a receipt the largest labelled number is the one
+   * that was actually charged. */
   var AMOUNT_PATTERNS = [
+    /\b(?:grand\s*total|total|amount\s*paid|amount|paid|bill)\b[^0-9\n]{0,14}(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
     /(?:₹|rs\.?|inr|rupees?)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
-    /([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:₹|rs\.?|inr|rupees?)/i,
-    /\b(?:total|amount|grand\s*total|paid|bill)\b[^0-9]{0,12}([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i
+    /([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:₹|rs\.?|inr|rupees?)/i
   ];
+
+  /* Identifiers that are numbers but are never money. An order or invoice
+   * number read as an amount is exactly the plausible-wrong-number failure
+   * ADR-004 exists to prevent - observed on device, where a receipt's
+   * "Order #84732960" was picked up as the total. */
+  var ID_CONTEXT =
+    /(?:order|invoice|bill\s*no|ref|receipt|txn|transaction|gstin|tin|phone|tel|date|time)\b[^0-9\n]{0,8}#?\s*$/i;
 
   var WORD_NUM = {
     zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8,
@@ -44,20 +54,33 @@ var PTExtract = (function () {
     return (seen && v > 0) ? v : null;
   }
 
+  /* An identifier, not money: preceded by "Order #"/"Ref" etc, or a long run of
+   * digits with no decimal point. Real spends are not 8-digit whole numbers. */
+  function isIdentifier(text, matchIndex, raw) {
+    var before = String(text).substring(0, matchIndex);
+    if (ID_CONTEXT.test(before)) return true;
+    var digits = raw.replace(/[^0-9]/g, '');
+    return digits.length >= 7 && raw.indexOf('.') === -1;
+  }
+
   function parseAmount(text) {
     if (!text) return null;
+    var s = String(text);
     for (var i = 0; i < AMOUNT_PATTERNS.length; i++) {
-      var m = String(text).match(AMOUNT_PATTERNS[i]);
-      if (m) {
+      var re = new RegExp(AMOUNT_PATTERNS[i].source, 'ig');
+      var m;
+      while ((m = re.exec(s)) !== null) {
+        if (isIdentifier(s, m.index, m[1])) continue;
         var v = parseFloat(m[1].replace(/,/g, ''));
         if (v > 0) return v;
       }
     }
-    var w = wordsToNumber(text);
+    var w = wordsToNumber(s);
     if (w) return w;
-    var bare = String(text).match(/\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\b/);
-    if (bare) {
-      var b = parseFloat(bare[1].replace(/,/g, ''));
+    var bre = /\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\b/g, bm;
+    while ((bm = bre.exec(s)) !== null) {
+      if (isIdentifier(s, bm.index, bm[1])) continue;
+      var b = parseFloat(bm[1].replace(/,/g, ''));
       if (b > 0) return b;
     }
     return null;
@@ -67,7 +90,8 @@ var PTExtract = (function () {
    * an address, a number or a label. */
   function parseMerchant(text) {
     if (!text) return null;
-    var lines = String(text).split(/[\r\n]+/);
+    // The VLM emits markdown emphasis around lines it considers important.
+    var lines = String(text).replace(/[*_`#]/g, '').split(/[\r\n]+/);
     for (var i = 0; i < lines.length && i < 8; i++) {
       var l = lines[i].trim();
       if (l.length < 3 || l.length > 40) continue;
