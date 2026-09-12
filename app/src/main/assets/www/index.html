@@ -8,7 +8,9 @@
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
-    margin: 0; padding: 12px 12px 40px;
+    /* HackTracker's overlay sits over the top of the screen on the loaner, so
+       start below it rather than fighting for the same band. */
+    margin: 0; padding: 108px 12px 40px;
     background: #0d0f12; color: #e6e8eb;
     font: 14px/1.45 -apple-system, Roboto, system-ui, sans-serif;
   }
