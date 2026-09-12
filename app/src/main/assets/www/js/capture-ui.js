@@ -13,6 +13,7 @@ var PTCapture = (function () {
   var transcriptTimer = null;
   var voiceFinished = false;
   var recordingWav = false;
+  var onVoiceIntent = null;   // context/query utterances route here
 
   function el(id) { return document.getElementById(id); }
 
@@ -217,8 +218,31 @@ var PTCapture = (function () {
     }
 
     var text = (res && res.text) || '';
+
+    /* P0-3: one utterance can mean three different things. Route it before
+     * assuming it is a new spend - "this is for my college project" labels the
+     * last capture, and "how much on my project?" is a question, neither of
+     * which should create a transaction. The amount is still parsed by
+     * deterministic code either way (ADR-004). */
+    var routed = text ? PTIntent.classify(text) : { intent: 'capture' };
+    if (text && routed.intent !== 'capture') {
+      if (box) {
+        box.innerHTML =
+          '<div class="transcript">“' + esc(text) + '”</div>' +
+          '<div class="hint ok">' +
+          (routed.intent === 'query' ? 'question' : 'label: ' + esc(routed.purpose)) +
+          ' <span class="src">' +
+          (res && res.onDevice === false ? 'system asr' : 'on-device') +
+          '</span></div>';
+      }
+      if (onVoiceIntent) onVoiceIntent(routed, text);
+      transcriptTimer = setTimeout(closeSheet, 2600);
+      return;
+    }
+
     var amount = text ? PTExtract.parseAmount(text) : null;
     var note = text ? (PTExtract.noteFromSpeech(text) || text) : '';
+    var purpose = routed.purpose || '';
 
     var box = el('ptTrx');
     if (box) {
@@ -242,6 +266,7 @@ var PTCapture = (function () {
       onResult('voice', {
         amount: amount,
         note: note || ('voice note ' + secs + 's'),
+        purpose: purpose,
         path: wav.path || null,
         extracted: { ok: !!text, text: text, amount: amount, source: 'android-ondevice-asr' }
       });
@@ -259,6 +284,8 @@ var PTCapture = (function () {
     startPhoto: startPhoto,
     startVoice: startVoice,
     close: closeSheet,
-    onResult: function (fn) { onResult = fn; }
+    onResult: function (fn) { onResult = fn; },
+    /** Called when a spoken utterance was a label or a question, not a spend. */
+    onIntent: function (fn) { onVoiceIntent = fn; }
   };
 })();

@@ -223,6 +223,27 @@ var PTBridge = (function () {
     return safe(function () { return asObj(native.storageUsage(), {}); }, {});
   }
 
+  /* P0-3 optional LLM. The deterministic router answers first and never waits
+   * on this; it is consulted only for genuinely ambiguous utterances. Returning
+   * false here keeps the whole feature working with no model, which is what
+   * makes the demo independent of NPU availability. */
+  function llmAvailable() {
+    if (!isDevice || typeof native.llmAvailable !== 'function') return false;
+    return safe(function () { return !!native.llmAvailable(); }, false);
+  }
+
+  function classifyIntent(text, cb) {
+    if (!llmAvailable()) { cb({ ok: false, error: 'no llm' }); return; }
+    window.__ptIntentCb = cb;
+    safe(function () { native.classifyIntent(text); });
+    setTimeout(function () {
+      if (window.__ptIntentCb === cb) {
+        window.__ptIntentCb = null;
+        cb({ ok: false, error: 'llm timed out' });
+      }
+    }, 8000);
+  }
+
   function simulateSmsChange() {
     if (isDevice && native.simulateSmsChange) safe(function () { native.simulateSmsChange(); });
   }
@@ -235,6 +256,8 @@ var PTBridge = (function () {
     visionExtract: visionExtract,
     visionStatus: visionStatus,
     transcribe: transcribe,
+    llmAvailable: llmAvailable,
+    classifyIntent: classifyIntent,
     startListening: startListening,
     stopListening: stopListening,
     cancelListening: cancelListening,

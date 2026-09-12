@@ -106,6 +106,54 @@
   .listening .dot:nth-child(3) { animation-delay: .36s; }
   @keyframes pulse { 0%,100% { opacity: .28; transform: scale(.82); }
                      50% { opacity: 1; transform: scale(1.18); } }
+
+  /* --- P0-2 clarity header ------------------------------------------- */
+  .clarity { display: flex; gap: 8px; margin-bottom: 10px; }
+  .cbox { flex: 1 1 0; background: #14171c; border: 1px solid #232930;
+          border-radius: 10px; padding: 8px 10px; text-align: center; }
+  .cbox .big { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
+               line-height: 1.1; }
+  .cbox .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .07em;
+               color: #7e8794; margin-top: 2px; }
+  .cbox.zero .big { color: #4ade80; }
+  .cbox.warn .big { color: #f59e0b; }
+  .cbox.bad  .big { color: #f87171; }
+  .bar { height: 4px; background: #232930; border-radius: 99px; margin-top: 6px;
+         overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: #22c55e; border-radius: 99px;
+             transition: width .4s ease; }
+  .bar.risk > i { background: #f59e0b; }
+
+  /* --- P1 evidence chips ---------------------------------------------- */
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+  .chip { font-size: 9px; padding: 2px 6px; border-radius: 99px;
+          border: 1px solid transparent; letter-spacing: .02em; }
+  .chip.sms    { background: #10243d; color: #7cc0ff; border-color: #1b3a5e; }
+  .chip.ocr    { background: #0f2e21; color: #5ee9a4; border-color: #174633; }
+  .chip.voice  { background: #2e1b3d; color: #d0a3f5; border-color: #46295e; }
+  .chip.purpose{ background: #3a2c10; color: #f5cd7a; border-color: #5c451a; }
+  .chip.none   { background: #241416; color: #f87171; border-color: #45201f; }
+
+  /* --- P0-1 two-second proof ------------------------------------------ */
+  .proof { background: #14171c; border: 1px solid #232930; border-radius: 10px;
+           padding: 10px; margin-bottom: 12px; }
+  .proofRow { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+  .proofRow .k { font-size: 11px; color: #7e8794; width: 62px; }
+  .proofRow .v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .proofRow.fast .v { color: #4ade80; }
+  .proofRow.slow .v { color: #f87171; }
+  .proofWin { font-size: 11px; color: #9aa4b2; margin-top: 6px; }
+
+  /* --- P1 ask box ------------------------------------------------------ */
+  .ask { display: flex; gap: 6px; margin-top: 6px; }
+  .ask input { flex: 1 1 auto; }
+  .answer { background: #101a26; border: 1px solid #1b3a5e; border-radius: 8px;
+            padding: 9px 10px; margin-top: 6px; font-size: 13px; }
+  .answer .q { color: #7e8794; font-size: 11px; margin-bottom: 3px; }
+  .answer .a { font-size: 15px; font-weight: 600; }
+  .answer .rows { color: #9aa4b2; font-size: 11px; margin-top: 4px; line-height: 1.5; }
+  .dupWarn { background: #2a1410; border-color: #5c2318; }
+  .dupWarn .a { color: #fb923c; }
 </style>
 </head>
 <body>
@@ -114,6 +162,30 @@
   <h1>Paper Trail</h1>
   <span class="marker" id="marker">boot</span>
 </header>
+
+
+<div class="clarity">
+  <div class="cbox" id="boxUnexplained">
+    <div class="big" id="unexCount">–</div>
+    <div class="lbl">Unexplained</div>
+  </div>
+  <div class="cbox" id="boxStreak">
+    <div class="big" id="streakDays">0</div>
+    <div class="lbl">Day streak</div>
+    <div class="bar" id="streakBar"><i style="width:0%"></i></div>
+  </div>
+  <div class="cbox" id="boxScore">
+    <div class="big" id="clarityPct">–</div>
+    <div class="lbl">Clarity</div>
+  </div>
+</div>
+
+<div class="proof" id="proofPanel" style="display:none">
+  <div style="font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#7e8794">Measured capture cost</div>
+  <div class="proofRow fast"><span class="k">Capture</span><span class="v" id="proofCapture">–</span></div>
+  <div class="proofRow slow"><span class="k">By hand</span><span class="v" id="proofManual">–</span></div>
+  <div class="proofWin" id="proofWin"></div>
+</div>
 
 <div class="capture">
   <div class="row">
@@ -129,6 +201,11 @@
     <button id="bRefresh">↻ Read SMS</button>
     <button id="bReconcile">⇄ Reconcile</button>
   </div>
+  <div class="ask">
+    <input id="askBox" type="text" placeholder="ask: how much on my college project?">
+    <button id="bAsk">Ask</button>
+  </div>
+  <div id="answer"></div>
 </div>
 
 <h2>Reconciled <span class="count" id="cRec">0</span></h2>
@@ -145,6 +222,9 @@
 <script src="js/bridge.js"></script>
 <script src="js/extract.js"></script>
 <script src="js/capture-ui.js"></script>
+<script src="js/financial-memory.js"></script>
+<script src="js/intent.js"></script>
+<script src="js/proof.js"></script>
 <script>
 var BUILD_MARKER = 'demo-v1';
 var recording = false;
@@ -160,6 +240,131 @@ function ago(ts) {
 }
 function stamp() {
   $('marker').textContent = BUILD_MARKER + ' ' + new Date().toTimeString().slice(0, 8);
+}
+
+
+/* --- P1 evidence chips ------------------------------------------------
+ * One chip per independent source that backs a record. This is the visible
+ * form of the truth hierarchy: SMS proves the money moved, OCR proves what was
+ * bought, voice proves why. */
+var CHIP_LABEL = { sms: 'SMS', ocr: 'RECEIPT', voice: 'VOICE', purpose: 'PURPOSE' };
+
+function chipsFor(r) {
+  var rec = {
+    kind: 'reconciled',
+    source: (r.pending && r.pending.source) || 'manual',
+    purpose: (r.pending && r.pending.purpose) || ''
+  };
+  var ev = PTMemory.evidenceOf(rec);
+  var html = ev.map(function (e) {
+    return '<span class="chip ' + e + '">' + (CHIP_LABEL[e] || e.toUpperCase()) + '</span>';
+  }).join('');
+  if (!PTMemory.isExplained(rec)) {
+    html += '<span class="chip none">no evidence</span>';
+  }
+  var p = rec.purpose;
+  if (p) html += '<span class="chip purpose">' + esc(p) + '</span>';
+  return '<div class="chips">' + html + '</div>';
+}
+
+/* --- P0-2 clarity header --------------------------------------------- */
+function renderClarity() {
+  var un = PTMemory.unexplained(PTStore);
+  var sc = PTMemory.clarityScore(PTStore);
+  var st = PTMemory.clarityStreak(PTStore);
+
+  $('unexCount').textContent = un.count;
+  $('boxUnexplained').className = 'cbox ' +
+    (un.count === 0 ? 'zero' : (un.count <= 2 ? 'warn' : 'bad'));
+
+  $('clarityPct').textContent = sc.totalRows ? (sc.pct + '%') : '–';
+  $('boxScore').className = 'cbox ' +
+    (sc.pct >= 90 ? 'zero' : (sc.pct >= 60 ? 'warn' : 'bad'));
+
+  $('streakDays').textContent = st.days;
+  var barPct = st.todayTotal
+    ? Math.round((st.todayExplained / st.todayTotal) * 100) : 100;
+  var bar = $('streakBar');
+  bar.className = 'bar' + (st.atRisk ? ' risk' : '');
+  bar.firstChild.style.width = barPct + '%';
+  $('boxStreak').className = 'cbox ' + (st.atRisk ? 'warn' : 'zero');
+}
+
+/* --- P0-1 two-second proof ------------------------------------------- */
+function renderProof() {
+  var h = PTProof.headline();
+  var panel = $('proofPanel');
+  if (!h) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  $('proofCapture').textContent = h.capture;
+  if (!h.ready) {
+    $('proofManual').textContent = '–';
+    $('proofWin').textContent = h.note;
+    return;
+  }
+  $('proofManual').textContent = h.manual;
+  $('proofWin').textContent =
+    h.factor + '× faster · ' + PTProof.secs(h.savedMs) +
+    ' saved per entry · n=' + h.n.capture + '/' + h.n.manual;
+}
+
+/* --- P1 ask box ------------------------------------------------------- */
+function renderAnswer(text, intent, result) {
+  var box = $('answer');
+  if (!result) { box.innerHTML = ''; return; }
+  var dup = result.query === 'didIPayTwice' && result.count > 0;
+  var rows = '';
+  if (dup) {
+    rows = result.pairs.map(function (p) {
+      return '⚠ ' + money(p.amount) + ' to ' + esc(p.merchant) +
+             ' twice, ' + Math.round(p.gapMs / 1000) + 's apart' +
+             '<br><span style="color:#6b7280">refs ' + esc(p.first.ref || '?') +
+             ' and ' + esc(p.second.ref || '?') + '</span>';
+    }).join('<br>');
+  } else if (result.rows && result.rows.length) {
+    rows = result.rows.slice(0, 4).map(function (r) {
+      return money(r.amount) + ' · ' + esc(r.merchant || r.purpose || '—') +
+             (r.ref ? ' · ref ' + esc(r.ref) : '');
+    }).join('<br>');
+  }
+  box.innerHTML =
+    '<div class="answer' + (dup ? ' dupWarn' : '') + '">' +
+      '<div class="q">' + esc(text) + '</div>' +
+      '<div class="a">' + esc(PTIntent.describe(result)) + '</div>' +
+      (rows ? '<div class="rows">' + rows + '</div>' : '') +
+    '</div>';
+}
+
+function ask(text) {
+  if (!text) return;
+  PTIntent.route(text, function (intent) {
+    PTBridge.log('intent ' + intent.intent + ' via ' + intent.via +
+                 ' q=' + (intent.queryName || '-'));
+    if (intent.intent !== 'query') {
+      // Not a question: treat it as labelling the most recent capture.
+      applyContext(intent);
+      return;
+    }
+    var result = PTIntent.runQuery(intent, PTStore);
+    renderAnswer(text, intent, result);
+  });
+}
+
+/* Voice context: attach a purpose to the most recent record, so
+ * "this is for my college project" labels what was just captured. */
+function applyContext(intent) {
+  var p = intent.purpose;
+  if (!p) return;
+  var target = PTStore.pending.length
+    ? PTStore.pending[PTStore.pending.length - 1]
+    : (PTStore.reconciled.length
+        ? PTStore.reconciled[PTStore.reconciled.length - 1].pending : null);
+  if (!target) { renderAnswer('label: ' + p, intent, null); return; }
+  target.purpose = p;
+  PTStore.save();
+  render();
+  renderClarity();
+  PTBridge.log('context: labelled "' + p + '"');
 }
 
 function render(flashIds) {
@@ -179,6 +384,7 @@ function render(flashIds) {
         ' · ' + esc(r.txn.counterparty || '') +
         (r.txn.acctLast4 ? ' · ••' + r.txn.acctLast4 : '') + '</div>' +
       '<div class="why">' + esc((r.reasons || []).join(' · ')) + '</div>' +
+      chipsFor(r) +
     '</div>';
   }).join('') : '<div class="empty">nothing merged yet</div>';
 
@@ -221,6 +427,8 @@ function render(flashIds) {
       '<div class="meta">' + esc(t.issuer || '?') + ' · ' + ago(t.ts) +
         (t.acctLast4 ? ' · ••' + t.acctLast4 : '') +
         (t.senderRouted ? '' : ' · body-sig') + '</div>' +
+      '<div class="chips"><span class="chip sms">SMS</span>' +
+      '<span class="chip none">no evidence</span></div>' +
     '</div>';
   }).join('') : '<div class="empty">no unmatched transactions</div>';
 }
@@ -246,6 +454,7 @@ function runReconcile() {
   r.merged.forEach(function (m) { flash[m.id] = 1; });
   stamp();
   render(flash);
+  renderClarity();
   PTBridge.log('reconcile merged=' + r.merged.length + ' confirm=' + r.confirm.length);
   return r;
 }
@@ -269,6 +478,7 @@ function capture(source, extra) {
     note: $('note').value || (extra && extra.note) || source,
     source: source,
     path: extra && extra.path || null,
+    purpose: (extra && extra.purpose) || '',
     direction: 'debit'
   });
   $('amt').value = ''; $('note').value = '';
@@ -281,14 +491,59 @@ function capture(source, extra) {
   return p;
 }
 
-$('bManual').onclick = function () { capture('manual'); };
+/* P0-1: a manual entry is measured from the FIRST keystroke in either field to
+ * submission - that is the friction a person actually feels. Tapping a field,
+ * typing an amount, typing a note and submitting is the tap count. */
+var manualStarted = false;
+function beginManual() {
+  if (manualStarted) return;
+  manualStarted = true;
+  PTProof.begin('manual', 1);   // the tap that focused the field
+}
+$('amt').addEventListener('focus', beginManual);
+$('note').addEventListener('focus', beginManual);
+$('amt').addEventListener('input', function () { PTProof.bumpTaps(0); });
 
-$('bPhoto').onclick = function () { PTCapture.startPhoto(); };
-$('bVoice').onclick = function () { PTCapture.startVoice(); };
+$('bManual').onclick = function () {
+  if (manualStarted) {
+    // amount + note + submit, on top of the focus tap
+    PTProof.bumpTaps(2);
+    PTProof.end(true);
+    manualStarted = false;
+  }
+  capture('manual');
+  renderProof();
+};
+
+/* P0-1: capture is measured from the button tap to the entry landing. Two taps
+ * is the real interaction: open the sheet, then shoot/stop. */
+$('bPhoto').onclick = function () {
+  PTProof.begin('capture', 1);
+  PTCapture.startPhoto();
+};
+$('bVoice').onclick = function () {
+  PTProof.begin('capture', 1);
+  PTCapture.startVoice();
+};
+
+$('bAsk').onclick = function () { ask($('askBox').value.trim()); };
+$('askBox').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') ask($('askBox').value.trim());
+});
 
 /* Capture sheets hand back an amount and a note. If extraction produced an
  * amount we create the pending entry straight away; if it did not, we prefill
  * what we have and leave the user to type the number. Never a dead end. */
+/* Voice that was a label or a question, not a spend. */
+PTCapture.onIntent(function (intent, text) {
+  if (intent.intent === 'query') {
+    var result = PTIntent.runQuery(intent, PTStore);
+    renderAnswer(text, intent, result);
+  } else {
+    applyContext(intent);
+  }
+});
+
 PTCapture.onResult(function (kind, r) {
   if (r.note) $('note').value = r.note;
   var amt = r.amount;
@@ -305,11 +560,16 @@ PTCapture.onResult(function (kind, r) {
   }
   if (amt != null && amt > 0) {
     $('amt').value = amt;
-    capture(kind, { path: r.path, note: r.note });
+    PTProof.bumpTaps(1);            // the shoot / stop tap
+    var m = PTProof.end(true);
+    if (m) PTBridge.log('proof: ' + kind + ' ' + m.ms + 'ms ' + m.taps + ' taps');
+    capture(kind, { path: r.path, note: r.note, purpose: r.purpose });
+    renderProof();
   } else {
     /* Do NOT focus the field here. Focusing raises the soft keyboard while the
      * capture sheet is still closing, which covers the screen and looks like a
      * failure. The user can tap the field themselves. */
+    PTProof.cancel();
     PTBridge.log(kind + ': no amount extracted, awaiting manual entry');
   }
 });
@@ -346,6 +606,11 @@ window.PTOnEvent = function (name, payload) {
     if (window.__ptTranscriptCb) { var tc = window.__ptTranscriptCb; window.__ptTranscriptCb = null; tc(t); }
     return;
   }
+  if (name === 'intent') {
+    var ir = PTBridge.asObj(payload, { ok: false });
+    if (window.__ptIntentCb) { var ic = window.__ptIntentCb; window.__ptIntentCb = null; ic(ir); }
+    return;
+  }
   if (name === 'partial') {
     var pp = PTBridge.asObj(payload, {});
     if (window.__ptPartialCb && pp.text) window.__ptPartialCb(pp.text);
@@ -358,8 +623,11 @@ stamp();
 // Restore the ledger BEFORE reading SMS, so previously reconciled rows are
 // known and their transactions are not offered again as unmatched.
 PTStore.load();
+PTProof.load();
 refreshSms();
 runReconcile();
+renderClarity();
+renderProof();
 PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER +
              ' restored=' + PTStore.reconciled.length + 'r/' + PTStore.pending.length + 'p');
 </script>

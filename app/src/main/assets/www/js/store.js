@@ -17,7 +17,9 @@ var PTStore = (function () {
       note: o.note || '',
       source: o.source || 'manual',   // manual | photo | voice
       path: o.path || null,
-      issuer: o.issuer || null
+      issuer: o.issuer || null,
+      // P0-3: the purpose a voice utterance attached, e.g. "college project".
+      purpose: o.purpose || ''
     };
     pending.push(p);
     return p;
