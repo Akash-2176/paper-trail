@@ -23,7 +23,7 @@
   
   body {
     margin: 0;
-    padding: 104px 12px 130px;
+    padding: 214px 12px 132px;
     background: var(--bg);
     color: var(--text-primary);
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, Roboto, system-ui, sans-serif;
@@ -32,11 +32,13 @@
   
   /* --- Header ---------------------------------------------------- */
   header {
+    /* The HackTracker overlay occupies the top ~96px of the screen on the
+       loaner, which was rendering "Paper Trail" unreadable behind it. Start
+       below that band rather than competing for the same pixels. */
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: 96px; left: 0; right: 0;
     height: 52px;
-    background: rgba(13,15,18,0.92);
-    backdrop-filter: blur(12px);
+    background: var(--bg);
     border-bottom: 1px solid var(--card-border);
     display: flex;
     align-items: center;
@@ -56,21 +58,27 @@
   .marker.off { background: #241416; color: #f87171; }
   
   /* --- Clarity Dashboard Header --------------------------------- */
+  /* One compact strip. Three tall tiles pushed every payment below the fold,
+     which buried the thing the app is actually for. */
   .clarity {
-    display: flex; gap: 8px; margin-bottom: 14px;
+    display: flex; gap: 6px; margin-bottom: 10px;
   }
   .cbox {
     flex: 1 1 0; background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 10px; padding: 10px 8px; text-align: center;
+    border-radius: 9px; padding: 8px 10px;
+    /* height:auto and centred content - the boxes were inheriting a tall
+       min-height from the old three-tile layout and leaving dead space. */
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; min-height: 0; line-height: 1.1;
   }
   .cbox .big {
-    font-size: 22px; font-weight: 700;
-    font-variant-numeric: tabular-nums; line-height: 1.1;
+    font-size: 16px; font-weight: 700;
+    font-variant-numeric: tabular-nums; line-height: 1;
   }
   .cbox .lbl {
     font-size: 9px; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--text-muted); margin-top: 3px;
+    letter-spacing: .06em; color: var(--text-muted);
   }
   .cbox.zero .big { color: #4ade80; }
   .cbox.warn .big { color: var(--accent-amber); }
@@ -215,6 +223,111 @@
   .hint { color: var(--text-muted); font-size: 12px; margin: 4px 0; }
   .hint.ok { color: #4ade80; }
   .hint.err, .err { color: var(--accent-red); }
+
+  /* --- Tabs ------------------------------------------------------- */
+  .tabs {
+    /* Fixed, not sticky: a sticky element inside a scrolling body still lets
+       rows pass behind the header above it. */
+    display: flex; gap: 6px;
+    position: fixed; top: 148px; left: 0; right: 0;
+    z-index: 35; background: var(--bg);
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--card-border);
+  }
+  .tab {
+    flex: 1 1 0; padding: 8px 6px; font-size: 12px; font-weight: 600;
+    background: transparent; border: 1px solid var(--card-border);
+    border-radius: 8px; color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .tab.active { background: #1f2630; color: var(--text-primary); border-color: #3b4450; }
+  .tabCount {
+    background: #2b323c; color: #9aa4b2; border-radius: 99px;
+    padding: 0 6px; font-size: 10px; font-weight: 700;
+  }
+  .tab.active .tabCount { background: var(--accent-blue); color: #fff; }
+
+  /* --- Payment row ------------------------------------------------ */
+  /* One row shape for every payment. What differs is the state stripe and
+     the chips, not the section it lives in. */
+  .pay {
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    border-left: 3px solid var(--card-border);
+    border-radius: 10px; padding: 11px 12px; margin-bottom: 7px;
+    cursor: pointer; transition: border-color .15s, transform .1s;
+  }
+  .pay:active { transform: scale(0.995); }
+  .pay.done    { border-left-color: var(--accent-green); }
+  .pay.waiting { border-left-color: var(--accent-amber); }
+  .pay.bare    { border-left-color: var(--accent-blue); }
+  .pay.dup     { border-left-color: #fb923c; background: #221510; }
+  .pay.flash   { animation: flash .9s ease-out; }
+
+  .payTop { display: flex; align-items: baseline; gap: 9px; }
+  .payAmt {
+    font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+  .payAmt.credit { color: #4ade80; }
+  .payWho {
+    flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-weight: 500;
+  }
+  .payWho.unknown { color: var(--text-muted); font-style: italic; font-weight: 400; }
+  .payWhen { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .payMeta { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
+  .payWarn {
+    font-size: 11px; color: #fb923c; margin-top: 5px;
+    display: flex; gap: 5px; align-items: center;
+  }
+
+  /* --- Detail sheet ----------------------------------------------- */
+  /* Above the header and tabs: a modal that leaves chrome floating on top of
+     its own backdrop reads as a rendering fault. */
+  .sheet { position: fixed; inset: 0; z-index: 90; display: flex;
+           align-items: flex-end; background: rgba(0,0,0,.55); }
+  .sheet.hidden { display: none; }
+  .sheetInner {
+    width: 100%; background: var(--card-bg);
+    border-top: 1px solid #2b323c; border-radius: 16px 16px 0 0;
+    padding: 16px 16px 26px; max-height: 82vh; overflow-y: auto;
+  }
+  .sheetHead {
+    display: flex; align-items: center; font-size: 14px;
+    font-weight: 700; margin-bottom: 12px;
+  }
+  .sheetHead .x {
+    margin-left: auto; background: none; border: none;
+    color: var(--text-muted); font-size: 17px; padding: 4px 8px;
+  }
+  .dRow {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 8px 0; border-bottom: 1px solid #1e242c; font-size: 13px;
+  }
+  .dRow:last-of-type { border-bottom: none; }
+  .dKey { color: var(--text-muted); flex-shrink: 0; }
+  .dVal { text-align: right; font-variant-numeric: tabular-nums; }
+  .dBig {
+    font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums;
+    margin-bottom: 2px;
+  }
+  .dShot {
+    width: 100%; border-radius: 10px; margin: 10px 0 4px;
+    border: 1px solid var(--card-border);
+  }
+  .dActions { display: flex; gap: 8px; margin-top: 14px; }
+  .dActions button {
+    flex: 1 1 0; padding: 12px; border-radius: 9px; font-size: 13px;
+    font-weight: 600; background: #1f2630; border: 1px solid #2b323c;
+    color: var(--text-primary);
+  }
+  .dActions button.go { background: #1d4ed8; border-color: #2563eb; }
+
+  /* --- Empty state ------------------------------------------------- */
+  .zero { text-align: center; padding: 34px 16px; color: var(--text-muted); }
+  .zero .icon { font-size: 30px; opacity: .5; }
+  .zero .head { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 8px; }
+  .zero .sub { font-size: 12px; margin-top: 4px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -234,7 +347,6 @@
   <div class="cbox" id="boxStreak">
     <div class="big" id="streakDays">0</div>
     <div class="lbl">Day streak</div>
-    <div class="bar" id="streakBar"><i style="width:0%"></i></div>
   </div>
   <div class="cbox" id="boxScore">
     <div class="big" id="clarityPct">–</div>
@@ -243,22 +355,33 @@
 </div>
 
 <!-- Conversational Canvas / Chat Feed -->
-<div class="feed" id="chatFeed">
-  <div class="chatMsg chatLlm">
-    <div class="q">Paper Trail Agent</div>
-    <div class="a">Ask any question or type a spend below (e.g., "₹250 for lunch" or "How much did I spend on coffee?").</div>
-  </div>
+<!-- Chat answers appear here. The old standing "agent" card was a permanent
+     instruction panel occupying prime space; the input placeholder says the
+     same thing at the moment it is needed. -->
+<div class="feed" id="chatFeed"></div>
+
+<!-- ONE payment list.
+     Pending / reconciled / unmerged were the reconciliation engine's internal
+     queues shown as three separate sections. A person thinks in payments, so
+     state is now a property of a row rather than a heading above it. -->
+<div class="tabs" id="tabs">
+  <button class="tab active" data-view="all">All</button>
+  <button class="tab" data-view="unexplained">Needs evidence <span class="tabCount" id="tabUnex">0</span></button>
+  <button class="tab" data-view="done">Explained <span class="tabCount" id="tabDone">0</span></button>
 </div>
 
-<!-- Detailed Ledger Views -->
-<h2>Action Items <span class="count" id="cPend">0</span></h2>
-<div id="pendList"><div class="empty">no pending captures</div></div>
+<div id="ledger"></div>
 
-<h2>Unmerged Bank SMS <span class="count" id="cTxn">0</span></h2>
-<div id="txnList"><div class="empty">no raw bank SMS</div></div>
-
-<h2>Reconciled Ledger <span class="count" id="cRec">0</span></h2>
-<div id="recList"><div class="empty">nothing merged yet</div></div>
+<!-- Row detail. Opened by tapping a payment. -->
+<div class="sheet hidden" id="detailSheet">
+  <div class="sheetInner">
+    <div class="sheetHead">
+      <span id="detailTitle">Payment</span>
+      <button class="x" id="detailClose">✕</button>
+    </div>
+    <div id="detailBody"></div>
+  </div>
+</div>
 
 <!-- Fixed Bottom Smart Action Bar -->
 <div class="actionBar">
@@ -293,6 +416,16 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  /** Relative time for a payment row. Lost in an earlier rewrite. */
+  function ago(ts) {
+    if (!ts) return '';
+    var d = Math.round((Date.now() - ts) / 1000);
+    if (d < 60) return 'just now';
+    if (d < 3600) return Math.round(d / 60) + 'm';
+    if (d < 86400) return Math.round(d / 3600) + 'h';
+    return Math.round(d / 86400) + 'd';
+  }
+
   function money(n) {
     return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
   }
@@ -332,10 +465,6 @@
     $('boxScore').className = 'cbox ' + (sc.pct >= 90 ? 'zero' : (sc.pct >= 60 ? 'warn' : 'bad'));
 
     $('streakDays').textContent = st.days;
-    var barPct = st.todayTotal ? Math.round((st.todayExplained / st.todayTotal) * 100) : 100;
-    var bar = $('streakBar');
-    bar.className = 'bar' + (st.atRisk ? ' risk' : '');
-    bar.firstChild.style.width = barPct + '%';
     $('boxStreak').className = 'cbox ' + (st.atRisk ? 'warn' : 'zero');
   }
 
@@ -356,61 +485,241 @@
   }
 
   // --- Main Ledger Rendering ------------------------------------
+  var view = 'all';
+
+  /* Every payment as one shape, whatever state it is in.
+   *
+   * A row is built from three facts: what it cost, who it was with, and what
+   * evidence backs it. The reconciliation engine's internal queues (pending /
+   * unmerged / reconciled) become a stripe colour and a line of meta, not three
+   * separate lists the user has to reconcile in their head. */
+  function payments() {
+    var S = PTStore, out = [];
+
+    S.reconciled.forEach(function (r) {
+      out.push({
+        key: 'r:' + r.id,
+        state: 'done',
+        ts: (r.txn && r.txn.ts) || r.ts,
+        amount: (r.txn && r.txn.amount) || r.pending.amount,
+        who: r.pending.note || (r.txn && r.txn.counterparty) || '',
+        meta: [(r.txn && r.txn.issuer) || 'bank',
+               r.auto ? 'auto ' + Math.round(r.confidence * 100) + '%'
+                      : 'confirmed'].filter(Boolean).join(' · '),
+        rec: r,
+        evidence: PTMemory.evidenceOf({
+          kind: 'reconciled',
+          source: r.pending.source,
+          purpose: r.pending.purpose
+        })
+      });
+    });
+
+    S.pending.forEach(function (p) {
+      out.push({
+        key: 'p:' + p.id,
+        state: 'waiting',
+        ts: p.ts,
+        amount: p.amount,
+        who: p.note || '',
+        meta: 'waiting for bank SMS',
+        rec: p,
+        evidence: PTMemory.evidenceOf({ kind: 'pending', source: p.source, purpose: p.purpose })
+      });
+    });
+
+    S.txns.forEach(function (t) {
+      if (S.isMerged(t.id)) return;
+      out.push({
+        key: 't:' + t.id,
+        state: 'bare',
+        ts: t.ts,
+        amount: t.amount,
+        credit: t.direction === 'credit',
+        who: t.counterparty || '',
+        meta: [t.issuer || 'SMS', t.acctLast4 ? '••' + t.acctLast4 : ''].filter(Boolean).join(' · '),
+        rec: t,
+        evidence: ['sms']
+      });
+    });
+
+    out.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    return out;
+  }
+
+  /** Duplicate pairs, keyed by row so a warning can sit on the row itself. */
+  function duplicateKeys() {
+    var map = {};
+    try {
+      var d = PTMemory.didIPayTwice(PTStore);
+      d.pairs.forEach(function (pr) {
+        map[String(pr.second.id)] = pr;
+        map[String(pr.first.id)] = pr;
+      });
+    } catch (e) {}
+    return map;
+  }
+
+  function chipHtml(ev, hasPurpose) {
+    var L = { sms: 'SMS', ocr: 'RECEIPT', voice: 'VOICE', purpose: 'PURPOSE' };
+    var h = (ev || []).map(function (e) {
+      return '<span class="chip ' + e + '">' + (L[e] || e) + '</span>';
+    }).join('');
+    var has = ev && (ev.indexOf('ocr') >= 0 || ev.indexOf('voice') >= 0);
+    if (!has && !hasPurpose) {
+      h += '<span class="chip none">no evidence</span>';
+    }
+    return '<div class="chips">' + h + '</div>';
+  }
+
+  function explained(p) {
+    return p.evidence.indexOf('ocr') >= 0 ||
+           p.evidence.indexOf('voice') >= 0 ||
+           p.evidence.indexOf('purpose') >= 0;
+  }
+
+  var rowIndex = {};
+
   function render(flashIds) {
     flashIds = flashIds || {};
-    var S = PTStore;
+    var all = payments();
+    var dups = duplicateKeys();
+    rowIndex = {};
 
-    // Reconciled
-    var rec = S.reconciled.slice().reverse();
-    $('cRec').textContent = rec.length;
-    $('recList').innerHTML = rec.length ? rec.map(function (r) {
-      return '<div class="card merged ' + (flashIds[r.id] ? 'flash' : '') + '">' +
-        '<div class="top"><span class="amt">' + money(r.txn.amount) + '</span>' +
-        '<span class="who">' + esc(r.pending.note || r.txn.counterparty || 'Spend') + '</span>' +
-        '<span class="badge ' + (r.auto ? 'auto' : '') + '">' + (r.auto ? 'auto ' : 'confirmed ') + Math.round(r.confidence * 100) + '%</span></div>' +
-        '<div class="meta">' + esc(r.txn.issuer || 'bank') + (r.txn.counterparty ? ' · ' + esc(r.txn.counterparty) : '') + '</div>' +
-        '<div class="why">' + esc((r.reasons || []).join(' · ')) + '</div>' +
-        chipsFor(r) +
-      '</div>';
-    }).join('') : '<div class="empty">nothing reconciled yet</div>';
+    var needs = all.filter(function (p) { return !explained(p); });
+    $('tabUnex').textContent = needs.length;
+    $('tabDone').textContent = all.length - needs.length;
 
-    // Pending & Confirm Prompts
+    var shown = view === 'unexplained' ? needs
+              : view === 'done' ? all.filter(explained)
+              : all;
+
+    // Confirm prompts stay at the top: they are the only thing needing a decision.
     var html = pendingConfirms.map(function (c, i) {
-      return '<div class="card confirm">' +
-        '<div class="top"><span class="amt">' + money(c.pending.amount) + '</span>' +
-        '<span class="who">' + esc(c.pending.note || c.pending.source) + '</span></div>' +
-        '<div class="meta">match: ' + money(c.cand.txn.amount) + ' ' + esc(c.cand.txn.counterparty || '') + ' (' + Math.round(c.cand.confidence * 100) + '%)</div>' +
-        '<div class="btns" style="display:flex;gap:6px;margin-top:6px;"><button onclick="doConfirm(' + i + ')">Merge</button>' +
-        '<button onclick="dismissConfirm(' + i + ')">Dismiss</button></div>' +
+      return '<div class="pay" style="border-left-color:var(--accent-purple)">' +
+        '<div class="payTop"><span class="payAmt">' + money(c.pending.amount) + '</span>' +
+        '<span class="payWho">' + esc(c.pending.note || c.pending.source) + '</span></div>' +
+        '<div class="payMeta">possible match: ' + money(c.cand.txn.amount) + ' ' +
+          esc(c.cand.txn.counterparty || '') + ' · ' +
+          Math.round(c.cand.confidence * 100) + '%</div>' +
+        '<div class="dActions"><button class="go" onclick="event.stopPropagation();doConfirm(' + i + ')">Merge</button>' +
+        '<button onclick="event.stopPropagation();dismissConfirm(' + i + ')">Not this</button></div>' +
       '</div>';
     }).join('');
 
-    var pend = S.pending.slice().reverse();
-    $('cPend').textContent = pend.length;
-    html += pend.map(function (p) {
-      return '<div class="card pending">' +
-        '<div class="top"><span class="amt">' + money(p.amount) + '</span>' +
-        '<span class="who">' + esc(p.note || '(no note)') + '</span>' +
-        '<span class="badge">' + p.source + '</span></div>' +
-        '<div class="meta">waiting for bank SMS</div>' +
+    html += shown.map(function (p) {
+      rowIndex[p.key] = p;
+      var dup = dups[String(p.rec.id)];
+      var cls = 'pay ' + (dup ? 'dup' : p.state) +
+                (flashIds[p.rec.id] ? ' flash' : '');
+      var who = p.who
+        ? '<span class="payWho">' + esc(p.who) + '</span>'
+        : '<span class="payWho unknown">unlabelled payment</span>';
+      return '<div class="' + cls + '" onclick="openDetail(&quot;' + p.key + '&quot;)">' +
+        '<div class="payTop">' +
+          '<span class="payAmt' + (p.credit ? ' credit' : '') + '">' +
+            (p.credit ? '+' : '') + money(p.amount) + '</span>' +
+          who +
+          '<span class="payWhen">' + ago(p.ts) + '</span>' +
+        '</div>' +
+        '<div class="payMeta">' + esc(p.meta) + '</div>' +
+        (dup ? '<div class="payWarn">⚠ possible duplicate · ' +
+               Math.round(dup.gapMs / 60000) + ' min apart</div>' : '') +
+        chipHtml(p.evidence, p.rec.purpose) +
       '</div>';
     }).join('');
-    $('pendList').innerHTML = html || '<div class="empty">no pending captures</div>';
 
-    // Unmerged Bank SMS
-    var un = S.txns.filter(function (t) { return !S.isMerged(t.id); });
-    $('cTxn').textContent = un.length;
-    $('txnList').innerHTML = un.length ? un.map(function (t) {
-      var cr = t.direction === 'credit';
-      return '<div class="card txn">' +
-        '<div class="top"><span class="amt ' + (cr ? 'credit' : '') + '">' + (cr ? '+' : '') + money(t.amount) + '</span>' +
-        '<span class="who">' + esc(t.counterparty || '—') + '</span>' +
-        (t.kind === 'p2p' ? '<span class="badge p2p">p2p</span>' : '') + '</div>' +
-        '<div class="meta">' + esc(t.issuer || 'SMS') + (t.acctLast4 ? ' · ••' + t.acctLast4 : '') + '</div>' +
-      '</div>';
-    }).join('') : '<div class="empty">no unmerged bank SMS</div>';
-
+    $('ledger').innerHTML = html || emptyState();
     renderClarity();
+  }
+
+  /** Empty states say what to do next, not just that there is nothing. */
+  function emptyState() {
+    if (view === 'unexplained') {
+      return '<div class="zero"><div class="icon">✓</div>' +
+        '<div class="head">Everything is explained</div>' +
+        '<div class="sub">Every payment has a receipt, a voice note or a purpose.</div></div>';
+    }
+    if (view === 'done') {
+      return '<div class="zero"><div class="icon">◌</div>' +
+        '<div class="head">Nothing explained yet</div>' +
+        '<div class="sub">Attach a receipt or say what a payment was for.</div></div>';
+    }
+    return '<div class="zero"><div class="icon">₹</div>' +
+      '<div class="head">No payments yet</div>' +
+      '<div class="sub">Type a spend below, photograph a receipt,<br>or tap the mic and say it.</div></div>';
+  }
+
+  /* --- Detail sheet ------------------------------------------------
+   * Tapping a payment was previously inert. The evidence chips claimed a
+   * receipt existed but there was no way to see it, which undercut the whole
+   * point of the product. */
+  function openDetail(key) {
+    var p = rowIndex[key];
+    if (!p) return;
+    var r = p.rec;
+    var rows = [];
+
+    function line(k, v) {
+      if (v == null || v === '') return;
+      rows.push('<div class="dRow"><span class="dKey">' + esc(k) +
+                '</span><span class="dVal">' + esc(String(v)) + '</span></div>');
+    }
+
+    var txn = p.state === 'done' ? r.txn : (p.state === 'bare' ? r : null);
+    var pend = p.state === 'done' ? r.pending : (p.state === 'waiting' ? r : null);
+
+    line('When', new Date(p.ts).toLocaleString('en-IN'));
+    if (txn) {
+      line('Bank', txn.issuer);
+      line('Account', txn.acctLast4 ? '••' + txn.acctLast4 : '');
+      line('Merchant', txn.counterparty);
+      line('Reference', txn.ref);
+      line('Direction', txn.direction);
+    }
+    if (pend) {
+      line('You said', pend.note);
+      line('Purpose', pend.purpose);
+      line('Captured by', pend.source);
+    }
+    if (p.state === 'done') {
+      line('Match confidence', Math.round(r.confidence * 100) + '%');
+      line('Why it matched', (r.reasons || []).join(', '));
+    }
+
+    var shot = '';
+    if (pend && pend.path) {
+      shot = '<img class="dShot" src="file://' + pend.path + '" onerror="this.remove()">';
+    }
+
+    $('detailTitle').textContent =
+      p.state === 'done' ? 'Reconciled payment'
+      : p.state === 'waiting' ? 'Awaiting bank SMS'
+      : 'Bank payment';
+
+    $('detailBody').innerHTML =
+      '<div class="dBig">' + money(p.amount) + '</div>' +
+      '<div class="payMeta" style="margin-bottom:10px">' +
+        esc(p.who || 'unlabelled payment') + '</div>' +
+      chipHtml(p.evidence, pend && pend.purpose) +
+      shot +
+      '<div style="margin-top:12px">' + rows.join('') + '</div>' +
+      (explained(p) ? '' :
+        '<div class="dActions">' +
+          '<button class="go" onclick="explainThis(&quot;' + key + '&quot;)">Add evidence</button>' +
+        '</div>');
+
+    $('detailSheet').className = 'sheet';
+  }
+
+  function closeDetail() { $('detailSheet').className = 'sheet hidden'; }
+
+  /** From a row straight into capture, so the count has a route to zero. */
+  function explainThis(key) {
+    closeDetail();
+    var p = rowIndex[key];
+    if (p) $('smartInput').placeholder = 'What was ' + money(p.amount) + ' for?';
+    $('smartInput').focus();
   }
 
   function doConfirm(i) {
@@ -568,6 +877,22 @@
     var flash = {};
     r.merged.forEach(function(m){ flash[m.id] = 1; });
     render(flash);
+  };
+
+  // Tabs filter the one list; they do not navigate anywhere.
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (x) {
+        x.className = 'tab';
+      });
+      b.className = 'tab active';
+      view = b.getAttribute('data-view');
+      render();
+    };
+  });
+  $('detailClose').onclick = closeDetail;
+  $('detailSheet').onclick = function (e) {
+    if (e.target === $('detailSheet')) closeDetail();
   };
 
   $('bPhoto').onclick = function() { PTCapture.startPhoto(); };
