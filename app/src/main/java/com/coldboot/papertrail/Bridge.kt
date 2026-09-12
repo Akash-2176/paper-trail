@@ -346,6 +346,21 @@ class Bridge(
     fun upiApps(): String = UpiIntentLauncher.availableApps(ctx).toString()
 
     /**
+     * Parse a UPI payload without the camera.
+     *
+     * The QR parser decides who gets paid, so it is tested against payloads
+     * directly rather than only through the optics. Debug builds only: it is a
+     * test seam, not product surface.
+     */
+    @JavascriptInterface
+    fun upiParseForTest(payload: String): String {
+        if (!BuildConfig.DEBUG) {
+            return JSONObject().put("ok", false).put("error", "debug only").toString()
+        }
+        return UpiUri.parse(payload).toJson().toString()
+    }
+
+    /**
      * Create a Paper Trail transaction from a scanned QR, BEFORE any payment.
      *
      * The record exists first so that a payment which succeeds while our

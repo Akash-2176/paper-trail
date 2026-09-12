@@ -41,8 +41,14 @@ object UpiUri {
      * Deliberately permissive on the local part (banks allow dots, hyphens,
      * underscores) and strict that a single '@' with a non-empty alphabetic
      * handle exists.
+     *
+     * The local part allows ONE character. It was written as {2,} and that
+     * rejected `a@bank`, which is a perfectly legal VPA - a validator that
+     * refuses a real merchant's address blocks a payment the user is standing
+     * in a shop trying to make, which is far worse than passing a malformed
+     * one through to the UPI app that will reject it properly anyway.
      */
-    private val VPA = Regex("^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,64}$")
+    private val VPA = Regex("^[A-Za-z0-9._-]{1,256}@[A-Za-z][A-Za-z0-9.-]{1,64}$")
 
     /** Amounts are decimal rupees, at most two places. Never negative or zero. */
     private val AMOUNT = Regex("^\\d{1,10}(\\.\\d{1,2})?$")

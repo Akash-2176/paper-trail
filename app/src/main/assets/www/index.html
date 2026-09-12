@@ -212,6 +212,13 @@
     font-family: inherit;
   }
   .actionTools button:active { color: var(--text-primary); }
+  /* Scan & Pay is the product's front door - it should not look like a
+     sibling of "Sync SMS". */
+  .actionTools button.toolPay {
+    background: #1d4ed8; border: 1px solid #2563eb; color: #fff;
+    border-radius: 99px; padding: 7px 14px; font-weight: 600;
+  }
+  .actionTools button.toolPay:active { background: #1e40af; color: #fff; }
 
   /* --- Sheets ---------------------------------------------------- */
   body.camera { background: transparent; }
@@ -348,6 +355,123 @@
   }
   .dActions button.go { background: #1d4ed8; border-color: #2563eb; }
 
+  /* --- UPI ---------------------------------------------------------- */
+  /* Built from the same tokens as the rest of the app: same card colours,
+     same radii, same muted-label treatment. A payment screen that looked
+     like a different product would undercut the trust it needs most. */
+  .chip.upi { background: #10243d; color: #7cc0ff; border-color: #1b3a5e; }
+
+  /* Scanner. The page goes transparent (body.camera) so the viewfinder shows
+     through; this is the only thing painted over it. */
+  .upiReticle {
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px 0 10px;
+  }
+  .upiFrame {
+    width: 190px; height: 190px; border-radius: 16px;
+    border: 2px solid rgba(59,130,246,.9);
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.28);
+  }
+
+  .upiPayee { text-align: center; padding: 6px 0 12px; }
+  .upiName { font-size: 15px; font-weight: 600; }
+  .upiVpa {
+    font-size: 12px; color: var(--text-muted); margin-top: 2px;
+    word-break: break-all;
+  }
+
+  .upiAmountFixed {
+    text-align: center; font-size: 34px; font-weight: 700;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin: 6px 0 2px;
+  }
+  .upiAmountEntry {
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; margin: 8px 0 2px;
+  }
+  .upiCur { font-size: 30px; font-weight: 700; color: var(--text-muted); }
+  .upiAmountEntry input {
+    width: 62%; background: transparent; border: none;
+    border-bottom: 2px solid #2b323c; color: var(--text-primary);
+    font: 700 34px/1.1 inherit; font-variant-numeric: tabular-nums;
+    text-align: center; outline: none; padding: 2px 0;
+  }
+  .upiAmountEntry input:focus { border-bottom-color: var(--accent-blue); }
+  /* Chrome's number spinners make a payment field look like a form widget. */
+  .upiAmountEntry input::-webkit-outer-spin-button,
+  .upiAmountEntry input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  .upiNote {
+    width: 100%; background: var(--card-bg); border: 1px solid #2b323c;
+    border-radius: 9px; padding: 10px 12px; color: var(--text-primary);
+    font-size: 14px; font-family: inherit; outline: none; margin-top: 14px;
+  }
+  .upiNote:focus { border-color: var(--accent-blue); }
+
+  .upiNext {
+    font-size: 12px; color: var(--text-muted); text-align: center;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid #1e242c;
+  }
+  .upiSaved { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+  .upiWait { text-align: center; padding: 18px 0 10px; }
+  .upiBig {
+    font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+
+  /* Result. The mark carries the state colour; the words carry the meaning. */
+  .upiResult { text-align: center; padding: 10px 0 4px; }
+  .upiMark {
+    font-size: 34px; line-height: 1; margin-bottom: 8px;
+    width: 58px; height: 58px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-left: auto; margin-right: auto;
+  }
+  .upiResult.ok    .upiMark { background: #14532d; color: #4ade80; }
+  .upiResult.bad   .upiMark { background: #45201f; color: #f87171; }
+  .upiResult.warn  .upiMark { background: #3a2c10; color: #f5cd7a; }
+  .upiResult.muted .upiMark { background: #1f2630; color: #9aa4b2; }
+  .upiState { font-size: 13px; font-weight: 600; margin-top: 6px; }
+  .upiResult.ok    .upiState { color: #4ade80; }
+  .upiResult.bad   .upiState { color: #f87171; }
+  .upiResult.warn  .upiState { color: var(--accent-amber); }
+  .upiResult .upiName { margin-top: 10px; }
+
+  .upiExplain {
+    font-size: 12px; color: var(--text-muted); text-align: center;
+    line-height: 1.5; margin: 12px 4px 0;
+  }
+  /* The honest line. A payment app's word is not the bank's. */
+  .upiUnverified {
+    font-size: 11px; color: var(--accent-amber);
+    background: #2a1f10; border: 1px solid #4a3a18;
+    border-radius: 7px; padding: 7px 10px; margin-top: 10px; text-align: center;
+  }
+
+  .upiCtx {
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid #1e242c;
+  }
+  .upiCtxHead { font-size: 13px; font-weight: 600; }
+  .upiCtxSub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .upiCtxRow { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .upiCtxRow input {
+    flex: 1 1 auto; background: var(--card-bg); border: 1px solid #2b323c;
+    border-radius: 99px; padding: 10px 14px; color: var(--text-primary);
+    font-size: 14px; font-family: inherit; outline: none; min-width: 0;
+  }
+  .upiCtxRow input:focus { border-color: var(--accent-blue); }
+  .upiMic {
+    width: 40px; height: 40px; border-radius: 20px; flex-shrink: 0;
+    background: #1f2630; border: 1px solid #2b323c;
+    color: var(--text-primary); font-size: 16px;
+  }
+  .upiMic.live { background: #7f1d1d; border-color: #b91c1c; }
+  .upiSave {
+    flex-shrink: 0; background: #1d4ed8; border: 1px solid #2563eb;
+    color: #fff; border-radius: 99px; padding: 10px 16px;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+  }
+
   /* --- Empty state ------------------------------------------------- */
   .zero { text-align: center; padding: 34px 16px; color: var(--text-muted); }
   .zero .icon { font-size: 30px; opacity: .5; }
@@ -433,9 +557,11 @@
     <button class="actionBtn" id="bVoice">🎙</button>
   </div>
   <div class="actionTools">
-    <button id="bPhoto">📷 Receipt Photo</button>
+    <!-- Scan-to-pay is the product's front door, so it leads and is the only
+         tool styled as a primary action. -->
+    <button id="bPay" class="toolPay">▣ Scan &amp; Pay</button>
+    <button id="bPhoto">📷 Receipt</button>
     <button id="bRefresh">↻ Sync SMS</button>
-    <button id="bReconcile">⇄ Reconcile</button>
   </div>
 </div>
 
@@ -448,6 +574,7 @@
 <script src="js/financial-memory.js"></script>
 <script src="js/intent.js"></script>
 <script src="js/proof.js"></script>
+<script src="js/upi.js"></script>
 
 <script>
   var BUILD_MARKER = 'v1.1-redesign';
@@ -552,7 +679,8 @@
         evidence: PTMemory.evidenceOf({
           kind: 'reconciled',
           source: r.pending.source,
-          purpose: r.pending.purpose
+          purpose: r.pending.purpose,
+          upi: r.pending.upi
         })
       });
     });
@@ -564,9 +692,18 @@
         ts: p.ts,
         amount: p.amount,
         who: p.note || '',
-        meta: 'waiting for bank SMS',
+        /* A UPI payment is not "waiting for bank SMS" in the same sense as a
+         * typed spend - the payment app already reported an outcome, and the
+         * SMS is the corroboration. Say which of the two we are at. */
+        meta: p.upi
+          ? (p.upi.state === 'VERIFIED' ? 'UPI · verified by bank'
+             : p.upi.state === 'PENDING' ? 'UPI · bank still processing'
+             : 'UPI · awaiting bank confirmation')
+          : 'waiting for bank SMS',
         rec: p,
-        evidence: PTMemory.evidenceOf({ kind: 'pending', source: p.source, purpose: p.purpose })
+        evidence: PTMemory.evidenceOf({
+          kind: 'pending', source: p.source, purpose: p.purpose, upi: p.upi
+        })
       });
     });
 
@@ -603,7 +740,8 @@
   }
 
   function chipHtml(ev, hasPurpose) {
-    var L = { sms: 'SMS', ocr: 'RECEIPT', voice: 'VOICE', purpose: 'PURPOSE' };
+    var L = { sms: 'SMS', ocr: 'RECEIPT', voice: 'VOICE', purpose: 'PURPOSE',
+              upi: 'UPI' };
     var h = (ev || []).map(function (e) {
       return '<span class="chip ' + e + '">' + (L[e] || e) + '</span>';
     }).join('');
@@ -723,6 +861,23 @@
       line('You said', pend.note);
       line('Purpose', pend.purpose);
       line('Captured by', pend.source);
+    }
+
+    /* UPI facts. The state line is the important one: it must never read as
+     * more certain than the evidence actually is. */
+    var u = pend && pend.upi;
+    if (u) {
+      line('Paid to', u.payeeName);
+      line('UPI ID', u.vpa);
+      line('Status', PTUpi.LABEL[u.state] || u.state);
+      line('Paper Trail ref', u.refId);
+      line('UPI transaction', u.upiTxnId);
+      line('Bank ref (RRN)', u.upiRefNumber);
+      if (u.contextText) {
+        line('You said after paying', u.contextText);
+        line('Heard by', u.contextSource === 'voice' ? 'voice' : 'typed');
+      }
+      if (u.contextNote) line('Detail', u.contextNote);
     }
     if (p.state === 'done') {
       line('Match confidence', Math.round(r.confidence * 100) + '%');
@@ -999,22 +1154,26 @@
     if (e.key === 'Enter') submitInput();
   });
 
+  /* Sync and reconcile are one action now: reading SMS and then NOT matching
+     it against the ledger was never something a user wanted separately, and
+     the freed slot went to Scan & Pay. */
   $('bRefresh').onclick = function() {
     var rows = PTBridge.readSms(200);
     PTStore.setTxns(rows);
-    PTStore.reconcileAll();
-    PTStore.save();
-    render();
-    stamp();
-  };
-
-  $('bReconcile').onclick = function() {
     var r = PTStore.reconcileAll();
-    PTStore.save();
     pendingConfirms = r.confirm;
+    // A UPI payment matched to a bank SMS is corroborated by evidence the
+    // payment app did not produce - that is what verification means.
+    var verified = PTStore.verifyMergedUpi();
+    PTStore.save();
     var flash = {};
     r.merged.forEach(function(m){ flash[m.id] = 1; });
     render(flash);
+    if (verified.length) {
+      appendChat('<div class="a">Bank SMS confirmed ' + verified.length +
+        ' UPI payment' + (verified.length === 1 ? '' : 's') + '.</div>', 'llm');
+    }
+    stamp();
   };
 
   /* Mode tabs switch between the ledger and the conversation. */
@@ -1054,6 +1213,29 @@
 
   $('bPhoto').onclick = function() { PTCapture.startPhoto(); };
   $('bVoice').onclick = function() { PTCapture.startVoice(); };
+  $('bPay').onclick = function() { PTUpi.startScan(); };
+
+  /* A finished UPI payment lands in the ledger like any other spend, then is
+   * matched against bank SMS by the existing engine. No second transaction
+   * system, and no reconciliation logic duplicated here. */
+  PTUpi.onDone(function (txn) {
+    syncUpiIntoLedger();
+    setMode('ledger');
+    var entry = PTStore.findByUpiId(txn.id);
+    var flash = {};
+    if (entry) flash[entry.id] = 1;
+    render(flash);
+  });
+
+  function syncUpiIntoLedger() {
+    var rows = PTBridge.upiTransactions();
+    PTStore.syncUpi(rows);
+    var r = PTStore.reconcileAll();
+    pendingConfirms = r.confirm;
+    PTStore.verifyMergedUpi();
+    PTStore.save();
+    return r;
+  }
 
   // Voice/Photo Callbacks
   PTCapture.onIntent(function(intent, text) {
@@ -1113,6 +1295,21 @@
         if (window.__ptCameraCb) { var cc = window.__ptCameraCb; window.__ptCameraCb = null; cc(c); }
         return;
       }
+      if (name === 'upiQr') {
+        /* The scanner keeps running until a payable code is accepted, so this
+         * callback is NOT cleared - unlike the one-shot capture callbacks
+         * above, it fires once per detected code. */
+        var q = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptQrCb) window.__ptQrCb(q);
+        return;
+      }
+      if (name === 'upiContext') {
+        var uc = PTBridge.asObj(payload, { ok: false });
+        if (window.__ptUpiCtxCb) {
+          var ucb = window.__ptUpiCtxCb; window.__ptUpiCtxCb = null; ucb(uc);
+        }
+        return;
+      }
       if (name === 'vision') {
         var v = PTBridge.asObj(payload, { ok: false });
         if (window.__ptVisionCb) { var vc = window.__ptVisionCb; window.__ptVisionCb = null; vc(v); }
@@ -1154,10 +1351,18 @@
   PTProof.load();
   var initialSms = PTBridge.readSms(200);
   PTStore.setTxns(initialSms);
+  /* UPI transactions are read from native storage on every boot, not held in
+   * the page. Returning from a UPI app reloads this page, so anything kept
+   * here would be gone exactly when it matters most. */
+  syncUpiIntoLedger();
   var bootRec = PTStore.reconcileAll();
   pendingConfirms = bootRec.confirm;
   PTStore.save();
   render();
+
+  /* The return path. If a payment came back while we were away, show its
+   * result now - this is the resume after the UPI app handed control back. */
+  PTUpi.checkPendingResult();
   renderRuntime();
   setTimeout(renderRuntime, 3000);
   setTimeout(renderRuntime, 8000);

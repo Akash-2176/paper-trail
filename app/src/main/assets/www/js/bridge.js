@@ -275,6 +275,109 @@ var PTBridge = (function () {
     if (isDevice && native.simulateSmsChange) safe(function () { native.simulateSmsChange(); });
   }
 
+  // --- UPI ---------------------------------------------------------------
+
+  /* Scanning. Camera state arrives via 'cameraOpen', detected codes via
+   * 'upiQr'. On desktop there is no camera, so the callback is told plainly
+   * rather than being left hanging. */
+  function startQrScan(onCamera, onCode) {
+    window.__ptQrCb = onCode || null;
+    if (!isDevice || typeof native.startQrScan !== 'function') {
+      if (onCamera) onCamera({ ok: false, error: 'no camera on desktop' });
+      return;
+    }
+    window.__ptCameraCb = onCamera || null;
+    safe(function () { native.startQrScan(); });
+  }
+
+  function stopQrScan() {
+    window.__ptQrCb = null;
+    window.__ptCameraCb = null;
+    if (isDevice && native.stopQrScan) safe(function () { native.stopQrScan(); });
+  }
+
+  /** Re-arm after a rejected code, without rebinding the camera. */
+  function resumeQrScan() {
+    if (isDevice && native.resumeQrScan) safe(function () { native.resumeQrScan(); });
+  }
+
+  function upiApps() {
+    if (!isDevice || typeof native.upiApps !== 'function') return [];
+    return safe(function () { return asObj(native.upiApps(), []); }, []);
+  }
+
+  /* Create the Paper Trail transaction BEFORE any payment app is launched.
+   * Native re-validates the amount: the UI's copy is not authoritative. */
+  function upiCreate(qr, amount, note) {
+    if (!isDevice || typeof native.upiCreateTransaction !== 'function') {
+      return { ok: false, error: 'UPI payments need the device' };
+    }
+    var json;
+    try { json = JSON.stringify(qr || {}); } catch (e) { return { ok: false, error: 'bad qr' }; }
+    return safe(function () {
+      return asObj(native.upiCreateTransaction(json, String(amount), String(note || '')),
+                   { ok: false });
+    }, { ok: false, error: 'could not prepare payment' });
+  }
+
+  /* Hand off to a UPI app. ok:true means the app LAUNCHED, never that the
+   * payment succeeded - that arrives later through upiPendingResult(). */
+  function upiPay(txnId, packageName) {
+    if (!isDevice || typeof native.upiPay !== 'function') {
+      return { ok: false, error: 'UPI payments need the device' };
+    }
+    return safe(function () {
+      return asObj(native.upiPay(String(txnId), String(packageName || '')), { ok: false });
+    }, { ok: false, error: 'could not open a UPI app' });
+  }
+
+  function upiTransactions() {
+    if (!isDevice || typeof native.upiTransactions !== 'function') return [];
+    return safe(function () { return asObj(native.upiTransactions(), []); }, []);
+  }
+
+  /* A result the user has not been shown yet. The page is reloaded on resume,
+   * so this - not page state - is how a payment survives the trip to the UPI
+   * app and back. */
+  function upiPendingResult() {
+    if (!isDevice || typeof native.upiPendingResult !== 'function') return { ok: false };
+    return safe(function () {
+      return asObj(native.upiPendingResult(), { ok: false });
+    }, { ok: false });
+  }
+
+  function upiClearPendingResult() {
+    if (isDevice && native.upiClearPendingResult) {
+      safe(function () { native.upiClearPendingResult(); });
+    }
+  }
+
+  /* Attach context. The raw words are saved unconditionally; the LLM's reading
+   * is enrichment layered on top, so this succeeds with no model present. */
+  function upiAttachContext(txnId, text, source, cb) {
+    if (!isDevice || typeof native.upiAttachContext !== 'function') {
+      cb({ ok: false, error: 'no device' });
+      return;
+    }
+    window.__ptUpiCtxCb = cb;
+    safe(function () { native.upiAttachContext(String(txnId), String(text), String(source)); });
+    setTimeout(function () {
+      if (window.__ptUpiCtxCb === cb) {
+        window.__ptUpiCtxCb = null;
+        // The text was already persisted natively before the model ran, so a
+        // slow model is not a lost note.
+        cb({ ok: true, structured: false, slow: true });
+      }
+    }, 12000);
+  }
+
+  function upiMarkVerified(txnId, evidence) {
+    if (!isDevice || typeof native.upiMarkVerified !== 'function') return false;
+    return safe(function () {
+      return !!native.upiMarkVerified(String(txnId), String(evidence || ''));
+    }, false);
+  }
+
   return {
     asObj: asObj,
     isDevice: isDevice,
@@ -303,6 +406,17 @@ var PTBridge = (function () {
     hasSms: hasSms,
     requestSms: requestSms,
     simulateSmsChange: simulateSmsChange,
+    startQrScan: startQrScan,
+    stopQrScan: stopQrScan,
+    resumeQrScan: resumeQrScan,
+    upiApps: upiApps,
+    upiCreate: upiCreate,
+    upiPay: upiPay,
+    upiTransactions: upiTransactions,
+    upiPendingResult: upiPendingResult,
+    upiClearPendingResult: upiClearPendingResult,
+    upiAttachContext: upiAttachContext,
+    upiMarkVerified: upiMarkVerified,
     log: log
   };
 })();

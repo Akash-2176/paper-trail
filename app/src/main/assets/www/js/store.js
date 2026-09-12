@@ -25,6 +25,100 @@ var PTStore = (function () {
     return p;
   }
 
+  /**
+   * Fold UPI transactions into the ledger as pending entries.
+   *
+   * A UPI payment is a spend the user made and the bank has not confirmed yet
+   * - which is exactly what a pending entry already models. Representing it
+   * this way means PTReconcile matches it against bank SMS with no new
+   * matching code, and the clarity metrics count it like any other payment.
+   *
+   * The UPI block rides along on the entry so the detail view and later
+   * reconciliation can see the response, the reference and the state.
+   *
+   * Only payments the UPI app reported as done enter the ledger. A cancelled
+   * or failed payment moved no money and must not appear as spending.
+   */
+  var LEDGER_STATES = { SUBMITTED: 1, VERIFIED: 1, PENDING: 1 };
+
+  function syncUpi(list) {
+    var rows = list || [];
+    var added = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      if (!t || !LEDGER_STATES[t.state]) continue;
+      var existing = findByUpiId(t.id);
+      if (existing) { applyUpi(existing, t); continue; }
+      var p = addPending({
+        amount: t.amount,
+        // The payee name is what the person recognises; the VPA is the fallback.
+        note: t.payeeName || t.vpa || 'UPI payment',
+        purpose: t.purpose || '',
+        source: 'upi',
+        ts: t.completedAt || t.initiatedAt || t.createdAt,
+        direction: 'debit'
+      });
+      applyUpi(p, t);
+      added++;
+    }
+    return added;
+  }
+
+  function applyUpi(entry, t) {
+    entry.upi = {
+      id: t.id,
+      state: t.state,
+      vpa: t.vpa,
+      payeeName: t.payeeName,
+      refId: t.refId,
+      merchantCode: t.merchantCode,
+      upiTxnId: t.upiTxnId,
+      upiRefNumber: t.upiRefNumber,
+      responseCode: t.responseCode,
+      contextText: t.contextText,
+      contextSource: t.contextSource,
+      contextNote: t.contextNote
+    };
+    if (t.purpose) entry.purpose = t.purpose;
+    /* Voice context is evidence in its own right - PTMemory reads `source` to
+     * decide whether a payment is explained, and a spoken note is exactly the
+     * evidence the product is asking for. */
+    if (t.contextSource === 'voice') entry.source = 'voice';
+    if (t.contextText && !entry.note) entry.note = t.contextText;
+  }
+
+  function findByUpiId(upiId) {
+    var i;
+    for (i = 0; i < pending.length; i++) {
+      if (pending[i].upi && pending[i].upi.id === upiId) return pending[i];
+    }
+    for (i = 0; i < reconciled.length; i++) {
+      var p = reconciled[i].pending;
+      if (p && p.upi && p.upi.id === upiId) return p;
+    }
+    return null;
+  }
+
+  /**
+   * A UPI payment that has been merged with a bank SMS is corroborated by
+   * evidence the payment app did not produce. That, and only that, is what
+   * promotes SUBMITTED to VERIFIED.
+   */
+  function verifyMergedUpi() {
+    var out = [];
+    for (var i = 0; i < reconciled.length; i++) {
+      var r = reconciled[i];
+      var u = r.pending && r.pending.upi;
+      if (!u || u.state !== 'SUBMITTED') continue;
+      if (!r.txn) continue;
+      if (PTBridge.upiMarkVerified(u.id, 'bank sms ' + (r.txn.ref || r.txn.id))) {
+        u.state = 'VERIFIED';
+        out.push(u.id);
+      }
+    }
+    return out;
+  }
+
   function setTxns(list) {
     txns = (list || []).slice();
     // newest first
@@ -126,6 +220,9 @@ var PTStore = (function () {
     load: load,
     addPending: addPending,
     setTxns: setTxns,
+    syncUpi: syncUpi,
+    findByUpiId: findByUpiId,
+    verifyMergedUpi: verifyMergedUpi,
     reconcileAll: reconcileAll,
     confirmMerge: confirmMerge,
     isMerged: isMerged,

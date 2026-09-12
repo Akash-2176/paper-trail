@@ -46,6 +46,7 @@ var PTMemory = (function () {
         ref: (r.txn && r.txn.ref) || null,
         issuer: (r.txn && r.txn.issuer) || null,
         direction: (r.txn && r.txn.direction) || 'debit',
+        upi: (r.pending && r.pending.upi) || null,
         rec: r
       });
     });
@@ -59,9 +60,10 @@ var PTMemory = (function () {
         purpose: p.purpose || '',
         note: p.note || '',
         source: p.source || 'manual',
-        ref: null,
+        ref: (p.upi && p.upi.refId) || null,
         issuer: p.issuer || null,
         direction: p.direction || 'debit',
+        upi: p.upi || null,
         rec: p
       });
     });
@@ -155,6 +157,11 @@ var PTMemory = (function () {
   function evidenceOf(rec) {
     var ev = [];
     if (rec.kind === 'reconciled') ev.push('sms');
+    /* A UPI response is evidence about the PAYMENT, not about its purpose: it
+     * proves an app reported the money moving, and says nothing about what was
+     * bought. So it is its own chip and, below, it deliberately does not make
+     * a payment "explained" - that still needs a human to say what it was for. */
+    if (rec.upi) ev.push('upi');
     var src = rec.source;
     if (src === 'photo') ev.push('ocr');
     if (src === 'voice') ev.push('voice');
@@ -361,6 +368,31 @@ var PTMemory = (function () {
         });
       }
     });
+    /* A UPI payment the bank has not messaged about yet.
+     *
+     * The loop above walks bank SMS only, which was complete while every
+     * payment reached us as an SMS. A UPI payment is known the moment it
+     * happens - before any SMS - so without this an unexplained ₹1,700 auto
+     * ride counted as zero until the bank got round to texting, which is
+     * exactly the window where the user still remembers what it was for.
+     *
+     * Reconciled UPI payments are skipped: the loop above already reached
+     * those through their bank row, and counting both would double them.
+     */
+    (store.pending || []).forEach(function (p) {
+      if (!p.upi) return;
+      if (p.direction === 'credit') return;
+      if ((p.ts || 0) < since) return;
+      var rec = { kind: 'pending', source: p.source, purpose: p.purpose, upi: p.upi };
+      if (isExplained(rec)) return;
+      rows.push({
+        id: p.id, ts: p.ts, amount: Number(p.amount) || 0,
+        merchant: (p.upi && p.upi.payeeName) || p.note || '',
+        reason: 'paid, not yet explained',
+        evidence: evidenceOf(rec)
+      });
+    });
+
     rows.sort(function (a, b) { return b.ts - a.ts; });
     return {
       query: 'unexplained',
