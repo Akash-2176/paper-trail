@@ -232,6 +232,19 @@ var PTBridge = (function () {
     return safe(function () { return !!native.llmAvailable(); }, false);
   }
 
+  function llmStatus() {
+    if (!isDevice || typeof native.llmStatus !== 'function') {
+      return { available: false, stub: true };
+    }
+    return safe(function () {
+      return asObj(native.llmStatus(), { available: false });
+    }, { available: false });
+  }
+
+  function llmReload() {
+    if (isDevice && native.llmReload) safe(function () { native.llmReload(); });
+  }
+
   function classifyIntent(text, cb) {
     if (!llmAvailable()) { cb({ ok: false, error: 'no llm' }); return; }
     window.__ptIntentCb = cb;
@@ -257,6 +270,8 @@ var PTBridge = (function () {
     visionStatus: visionStatus,
     transcribe: transcribe,
     llmAvailable: llmAvailable,
+    llmStatus: llmStatus,
+    llmReload: llmReload,
     classifyIntent: classifyIntent,
     startListening: startListening,
     stopListening: stopListening,

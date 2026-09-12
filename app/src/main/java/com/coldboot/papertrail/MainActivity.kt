@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var watcher: SmsWatcher
     private lateinit var previewView: androidx.camera.view.PreviewView
     private lateinit var vision: VisionEngine
+    private lateinit var llm: LlmEngine
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +100,11 @@ class MainActivity : AppCompatActivity() {
         bridge.vision = vision
         bridge.ocr = OcrEngine(this)
         bridge.speech = SpeechEngine(this)
+        llm = LlmEngine(this)
+        bridge.llm = llm
+        // Loading NPU context binaries takes seconds; start at launch so the
+        // first utterance is not the thing that waits for it.
+        llm.warmUp()
         // Loading a multi-GB VLM takes time; start as early as possible so the
         // first receipt capture is not the thing that waits for it.
         vision.warmUp()
@@ -144,6 +150,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         watcher.unregister()
         vision.close()
+        llm.close()
         webView.destroy()
         super.onDestroy()
     }

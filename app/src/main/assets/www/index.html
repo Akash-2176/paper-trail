@@ -17,9 +17,12 @@
   }
   header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
   h1 { font-size: 15px; margin: 0; letter-spacing: .01em; }
-  .marker { margin-left: auto; font-size: 10px; color: #4ade80;
+  .marker { font-size: 10px; color: #4ade80;
             background: #16301f; padding: 2px 7px; border-radius: 99px;
             font-variant-numeric: tabular-nums; }
+  .marker.npu  { background: #10243d; color: #7cc0ff; }
+  .marker.cpu  { background: #3a2c10; color: #f5cd7a; }
+  .marker.off  { background: #241416; color: #f87171; }
 
   .capture { background: #14171c; border: 1px solid #232930; border-radius: 10px;
              padding: 10px; margin-bottom: 12px; }
@@ -160,7 +163,8 @@
 
 <header>
   <h1>Paper Trail</h1>
-  <span class="marker" id="marker">boot</span>
+  <span class="marker" id="npuBadge" style="margin-left:auto">runtime…</span>
+  <span class="marker" id="marker" style="margin-left:6px">boot</span>
 </header>
 
 
@@ -265,6 +269,24 @@ function chipsFor(r) {
   var p = rec.purpose;
   if (p) html += '<span class="chip purpose">' + esc(p) + '</span>';
   return '<div class="chips">' + html + '</div>';
+}
+
+/* --- P0-3 runtime badge ----------------------------------------------
+ * Shows where inference actually runs. A claim of NPU execution has to be
+ * checkable on the device, not asserted in a slide. */
+function renderRuntime() {
+  var b = $('npuBadge');
+  var st = PTBridge.llmStatus();
+  if (st && st.available) {
+    b.className = 'marker npu';
+    b.textContent = 'NPU · Qwen3-1.7B';
+  } else if (st && st.loading) {
+    b.className = 'marker cpu';
+    b.textContent = 'NPU loading…';
+  } else {
+    b.className = 'marker off';
+    b.textContent = 'rules only';
+  }
 }
 
 /* --- P0-2 clarity header --------------------------------------------- */
@@ -628,6 +650,10 @@ refreshSms();
 runReconcile();
 renderClarity();
 renderProof();
+renderRuntime();
+// The NPU bundle loads asynchronously; re-check briefly after boot.
+setTimeout(renderRuntime, 4000);
+setTimeout(renderRuntime, 12000);
 PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER +
              ' restored=' + PTStore.reconciled.length + 'r/' + PTStore.pending.length + 'p');
 </script>

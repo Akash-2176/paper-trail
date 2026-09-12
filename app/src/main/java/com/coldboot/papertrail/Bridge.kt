@@ -231,6 +231,30 @@ class Bridge(
         speech?.cancel()
     }
 
+    /* P0-3: Qwen3-1.7B on the Hexagon NPU. Intent only - never a number. */
+    @JavascriptInterface
+    fun llmAvailable(): Boolean = llm?.isReady() == true
+
+    @JavascriptInterface
+    fun llmStatus(): String =
+        (llm?.status() ?: JSONObject().put("available", false)
+            .put("error", "no engine")).toString()
+
+    @JavascriptInterface
+    fun classifyIntent(text: String) {
+        val e = llm
+        if (e == null) {
+            push("intent", JSONObject().put("ok", false)
+                .put("error", "no llm engine").toString())
+            return
+        }
+        e.classify(text) { result -> push("intent", result.toString()) }
+    }
+
+    /** Re-scan for a bundle pushed after launch, without a restart. */
+    @JavascriptInterface
+    fun llmReload() { llm?.reload() }
+
     @JavascriptInterface
     fun speechStatus(): String =
         (speech?.status() ?: JSONObject().put("available", false)).toString()
@@ -256,6 +280,7 @@ class Bridge(
     var audio: AudioRecorder? = null
     var vision: VisionEngine? = null
     var speech: SpeechEngine? = null
+    var llm: LlmEngine? = null
     var ocr: OcrEngine? = null
 
     /** GenieX binding is PRESENT but deliberately NOT WIRED yet. */
