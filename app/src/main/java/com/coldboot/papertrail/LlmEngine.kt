@@ -338,7 +338,13 @@ class LlmEngine(private val ctx: Context) {
                 "/no_think\n" +
                 "You answer questions about a spending ledger.\n" +
                 "Use ONLY the RECORDS given. Never invent a payment.\n" +
-                "Never add up numbers yourself - totals are already provided.\n" +
+                /* "Never add up numbers" left the model quoting ONE line: with
+                 * two tomato rows it answered Rs 250 instead of the Rs 300
+                 * combined. Tell it which number to use, not just which not to
+                 * compute. The total in the header was calculated by code. */
+                "NEVER calculate. When asked how much, quote the combined\n" +
+                "total from the header exactly - it is already correct.\n" +
+                "Do not quote one line's amount as the answer.\n" +
                 "Answer in ONE short sentence, plain English, no markdown.\n" +
                 "If the records do not answer the question, say so plainly."
             val user = "RECORDS:\n" + context + "\n\nQUESTION: " + question + "\nANSWER:"
