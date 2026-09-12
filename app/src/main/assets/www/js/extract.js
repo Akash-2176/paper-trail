@@ -63,20 +63,30 @@ var PTExtract = (function () {
     return digits.length >= 7 && raw.indexOf('.') === -1;
   }
 
-  /* OCR misreads the rupee glyph. Measured on a real Paytm receipt: "₹300" came
-   * back as "7300" - the sign was read as a leading 7. Left uncorrected that is
-   * a plausible wrong number on screen, which ADR-004 treats as worse than no
-   * number at all.
+  /* OCR misreads the rupee glyph. Measured on a real Paytm receipt: the sign
+   * before 300 was read as a leading 7, giving 7300. Uncorrected that is a
+   * plausible wrong number on screen, which ADR-004 treats as worse than none.
    *
-   * Only a LEADING 7 immediately followed by a round-looking amount is treated
-   * as a stray glyph, and only when no currency marker was recognised on that
-   * line. A genuine 7300 keeps its 7 when written as "Rs 7300" or "7,300". */
+   * Only the leading 7. Stripping a leading 2 was far too aggressive: it turned
+   * a typed "250 for lunch" into 50 and "100 rupees for mouse" into a mangled
+   * note, both observed in the real ledger. A 2 is an ordinary first digit of
+   * an ordinary amount; 7 immediately before a round figure with no currency
+   * token is the specific OCR artefact we actually measured (the rupee glyph
+   * read as a 7 on the Paytm receipt). */
   var GLYPH_CONFUSIONS = [
-    { wrong: /^7(?=[0-9]{2,}$)/, right: '' },   // 7300 -> 300
-    { wrong: /^2(?=[0-9]{2,}$)/, right: '' }    // ?300 -> 300 (rupee read as 2)
+    { wrong: /^7(?=[0-9]{2,}$)/, right: '' }    // 7300 -> 300
   ];
 
-  function deglyph(raw, line) {
+  /**
+   * @param raw       the matched figure
+   * @param line      the line it came from, for currency context
+   * @param fromOcr   true only when the text came from an image. Typed and
+   *                  spoken input is never glyph-corrected: the user wrote the
+   *                  digits they meant, and "correcting" them silently changes
+   *                  the amount.
+   */
+  function deglyph(raw, line, fromOcr) {
+    if (!fromOcr) return raw;
     // A recognised currency token means the glyph was read correctly - leave it.
     if (/(?:₹|rs\.?|inr|rupees?)/i.test(line)) return raw;
     // Grouped or decimal numbers are written deliberately - leave them.
@@ -97,7 +107,7 @@ var PTExtract = (function () {
     return s.substring(start, end === -1 ? s.length : end);
   }
 
-  function parseAmount(text) {
+  function parseAmount(text, fromOcr) {
     if (!text) return null;
     var s = String(text);
     for (var i = 0; i < AMOUNT_PATTERNS.length; i++) {
@@ -105,7 +115,7 @@ var PTExtract = (function () {
       var m;
       while ((m = re.exec(s)) !== null) {
         if (isIdentifier(s, m.index, m[1])) continue;
-        var v = parseFloat(deglyph(m[1], lineAt(s, m.index)).replace(/,/g, ''));
+        var v = parseFloat(deglyph(m[1], lineAt(s, m.index), fromOcr).replace(/,/g, ''));
         if (v > 0) return v;
       }
     }
@@ -114,7 +124,7 @@ var PTExtract = (function () {
     var bre = /\b([0-9][0-9,]*(?:\.[0-9]{1,2})?)\b/g, bm;
     while ((bm = bre.exec(s)) !== null) {
       if (isIdentifier(s, bm.index, bm[1])) continue;
-      var b = parseFloat(deglyph(bm[1], lineAt(s, bm.index)).replace(/,/g, ''));
+      var b = parseFloat(deglyph(bm[1], lineAt(s, bm.index), fromOcr).replace(/,/g, ''));
       if (b > 0) return b;
     }
     return null;
@@ -191,7 +201,7 @@ var PTExtract = (function () {
       cb({
         ok: true,
         text: text,
-        amount: parseAmount(text),
+        amount: parseAmount(text, true),   // image text: glyph correction applies
         merchant: parseMerchant(text),
         source: r.source || 'vlm',
         ms: r.ms

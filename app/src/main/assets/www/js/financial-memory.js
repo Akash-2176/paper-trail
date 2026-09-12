@@ -80,6 +80,77 @@ var PTMemory = (function () {
     return 0;
   }
 
+  /* Category vocabulary.
+   *
+   * A substring test alone answers "nothing recorded for food" when the ledger
+   * holds tomato, varuval and Red Bull - all obviously food. Asking a question
+   * in the user's own words and being told there is no data, when there is, is
+   * worse than a wrong number: it teaches them the feature does not work.
+   *
+   * Deliberately a small hand-written map, not a model: category membership is
+   * a lookup, and ADR-004 keeps deterministic work deterministic. Extend it as
+   * real data demands rather than speculatively. */
+  var CATEGORIES = {
+    food: ['tomato', 'varuval', 'biryani', 'dosa', 'meal', 'lunch', 'dinner',
+           'breakfast', 'snack', 'juice', 'fruit', 'bakery', 'cafe', 'coffee',
+           'tea', 'swiggy', 'zomato', 'restaurant', 'hotel', 'dairy', 'milk',
+           'red bull', 'drink', 'food', 'grocer', 'vegetable', 'canteen'],
+    travel: ['auto', 'petrol', 'fuel', 'diesel', 'bunk', 'uber', 'ola', 'cab',
+             'taxi', 'bus', 'train', 'metro', 'ticket', 'travel', 'commute',
+             'ride', 'transport', 'parking', 'toll'],
+    shopping: ['mouse', 'keyboard', 'amazon', 'flipkart', 'store', 'mart',
+               'shop', 'clothes', 'shopping'],
+    entertainment: ['movie', 'cinema', 'game', 'netflix', 'spotify', 'theatre',
+                    'entertainment'],
+    bills: ['recharge', 'bill', 'electricity', 'water', 'gas', 'rent',
+            'subscription', 'emi', 'insurance']
+  };
+
+  /** Terms that mean the same category, so "commute" finds travel rows. */
+  var SYNONYMS = {
+    commute: 'travel', transport: 'travel', fuel: 'travel', petrol: 'travel',
+    eating: 'food', meals: 'food', groceries: 'food',
+    fun: 'entertainment', entertainment: 'entertainment'
+  };
+
+  /**
+   * Does this record match what the user asked about?
+   *
+   * Three ways, in order of confidence: the word appears in the row's own text;
+   * the word names a category and the row belongs to it; or the query is itself
+   * a category member (asking "tomato" should still match a row labelled
+   * "food"). All deterministic.
+   */
+  function matchesTerm(rec, q) {
+    if (!q) return true;
+    var hay = norm(rec.purpose) + ' ' + norm(rec.note) + ' ' + norm(rec.merchant);
+    if (hay.indexOf(q) >= 0) return true;
+
+    var cat = SYNONYMS[q] || (CATEGORIES[q] ? q : null);
+    if (cat && CATEGORIES[cat]) {
+      for (var i = 0; i < CATEGORIES[cat].length; i++) {
+        if (hay.indexOf(CATEGORIES[cat][i]) >= 0) return true;
+      }
+    }
+
+    // Multi-word questions: match if ANY meaningful word hits.
+    var parts = q.split(' ').filter(function (w) {
+      return w.length > 2 && ['the','and','for','what','much','how','was','are',
+        'spent','spend','total','about'].indexOf(w) < 0;
+    });
+    for (var j = 0; j < parts.length; j++) {
+      var p = parts[j];
+      if (hay.indexOf(p) >= 0) return true;
+      var c2 = SYNONYMS[p] || (CATEGORIES[p] ? p : null);
+      if (c2 && CATEGORIES[c2]) {
+        for (var k = 0; k < CATEGORIES[c2].length; k++) {
+          if (hay.indexOf(CATEGORIES[c2][k]) >= 0) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** What evidence backs this record. Drives the evidence chips in the UI. */
   function evidenceOf(rec) {
     var ev = [];
@@ -108,10 +179,7 @@ var PTMemory = (function () {
   function whereDidIBuy(store, term) {
     var q = norm(term);
     var rows = allRecords(store).filter(function (r) {
-      if (!q) return true;
-      return norm(r.merchant).indexOf(q) >= 0 ||
-             norm(r.note).indexOf(q) >= 0 ||
-             norm(r.purpose).indexOf(q) >= 0;
+      return matchesTerm(r, q);
     });
     rows.sort(function (a, b) { return b.ts - a.ts; });
     return {
@@ -236,7 +304,7 @@ var PTMemory = (function () {
     var rows = allRecords(store).filter(function (r) {
       if (r.direction === 'credit') return false;
       if (!q) return !!r.purpose;
-      return norm(r.purpose).indexOf(q) >= 0 || norm(r.note).indexOf(q) >= 0;
+      return matchesTerm(r, q);
     });
     rows.sort(function (a, b) { return b.ts - a.ts; });
     var total = rows.reduce(function (s, r) { return s + r.amount; }, 0);
@@ -406,6 +474,7 @@ var PTMemory = (function () {
     clarityScore: clarityScore,
     clarityStreak: clarityStreak,
     // shared helpers, exported for the UI and for tests
+    matchesTerm: matchesTerm,
     evidenceOf: evidenceOf,
     isExplained: isExplained,
     allRecords: allRecords,

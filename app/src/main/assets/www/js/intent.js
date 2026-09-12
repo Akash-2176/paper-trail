@@ -24,10 +24,21 @@ var PTIntent = (function () {
 
   // --- lexicon ----------------------------------------------------------
 
+  /* Question cues.
+   *
+   * These were far too narrow. Spoken and typed questions frequently carry no
+   * question mark - ASR rarely emits one - so "what is the total spent on food"
+   * and "what about commute" both fell through to `context` and were recorded
+   * as SPENDING. Observed on device: the ledger accumulated entries whose note
+   * was the user's own question, and a later query then answered by reading
+   * those back. Any leading interrogative is a question, full stop. */
   var QUERY_CUES = [
-    /\bhow much\b/i, /\bhow many\b/i, /\bwhat did i\b/i, /\bwhere did i\b/i,
-    /\bdid i (?:pay|spend|buy)\b/i, /\bshow me\b/i, /\bwhat was\b/i,
-    /\btotal\b.*\?|\?$/i, /\bwhat's my\b/i, /\bwhats my\b/i
+    /^\s*(?:what|how|where|when|which|who|why)\b/i,   // any leading interrogative
+    /\bhow much\b/i, /\bhow many\b/i, /\bwhat about\b/i,
+    /\bwhat did i\b/i, /\bwhere did i\b/i, /\bwhat is\b/i, /\bwhat was\b/i,
+    /\bwhat'?s\b/i, /\bdid i (?:pay|spend|buy)\b/i,
+    /\bshow me\b/i, /\blist\b/i, /\btell me\b/i,
+    /\btotal spent\b/i, /\bspent on\b/i, /\bspend on\b/i
   ];
 
   var CONTEXT_CUES = [
@@ -147,7 +158,25 @@ var PTIntent = (function () {
       };
     }
 
-    // Words, no number, no question: treat as a label for the latest capture.
+    /* Words, no number, no question cue.
+     *
+     * Treating this as a label is only safe for something SHORT, like "college
+     * project". A whole sentence is far more likely to be a question the cues
+     * missed than a category name, and guessing wrong wrote the user's own
+     * questions into the ledger as spending. Long text with no amount is
+     * therefore treated as a query, which is the recoverable mistake: a wrong
+     * answer is visible and costs nothing, a phantom transaction corrupts the
+     * ledger and the clarity metrics built on it. */
+    var words = t.split(/\s+/).filter(function (w) { return w; }).length;
+    if (words > 4) {
+      return {
+        intent: 'query',
+        queryName: 'spendByPurpose',
+        subject: subjectFrom(t) || tidy(t),
+        confidence: 0.5,
+        via: 'rules'
+      };
+    }
     return {
       intent: 'context',
       purpose: tidy(t),
