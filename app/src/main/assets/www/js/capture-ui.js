@@ -32,16 +32,19 @@ var PTCapture = (function () {
     return d;
   }
 
-  function openSheet(title, bodyHtml) {
+  function openSheet(title, bodyHtml, cameraMode) {
     var s = ensureSheet();
     el('ptSheetTitle').textContent = title;
     el('ptSheetBody').innerHTML = bodyHtml;
     s.className = 'sheet';
+    // Only the photo sheet needs the page transparent for the viewfinder.
+    document.body.className = cameraMode ? 'camera' : '';
   }
 
   function closeSheet() {
     var s = el('ptSheet');
     if (s) s.className = 'sheet hidden';
+    document.body.className = '';
     // Always tear the camera down; leaving it bound holds the sensor open.
     try { PTBridge.closeCamera(); } catch (e) {}
     if (voiceTimer) { clearInterval(voiceTimer); voiceTimer = null; }
@@ -56,7 +59,7 @@ var PTCapture = (function () {
         '<button id="ptShoot" class="primary big">◉ Capture</button>' +
         '<button id="ptCancel">Cancel</button>' +
       '</div>' +
-      '<div id="ptShotResult"></div>');
+      '<div id="ptShotResult"></div>', true);
 
     el('ptCancel').onclick = closeSheet;
 

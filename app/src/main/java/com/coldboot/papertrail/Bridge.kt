@@ -79,9 +79,88 @@ class Bridge(
     fun stopRecording(): String = (audio?.stop()
         ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
 
+    /** Start the viewfinder. Result arrives as a 'cameraOpen' push. */
+    @JavascriptInterface
+    fun openCamera() {
+        val cam = realCamera
+        if (cam == null) {
+            push("cameraOpen", JSONObject().put("ok", false)
+                .put("error", "no camera").toString())
+            return
+        }
+        cam.open { ok, hasPreview ->
+            push(
+                "cameraOpen",
+                JSONObject().put("ok", ok).put("preview", hasPreview)
+                    .put("error", if (ok) JSONObject.NULL else "bind failed").toString()
+            )
+        }
+    }
+
+    @JavascriptInterface
+    fun closeCamera() {
+        realCamera?.close()
+    }
+
+    /**
+     * Receipt -> TEXT. ADR-004: the model never computes; the product layer
+     * parses numbers out of this deterministically. Result arrives as a
+     * 'vision' push.
+     */
+    @JavascriptInterface
+    fun visionExtract(path: String) {
+        val v = vision
+        // VLM first when it is genuinely loaded; otherwise ML Kit OCR, which
+        // runs on-device with no download and no missing projector.
+        if (v != null && v.isReady()) {
+            v.extract(path) { result ->
+                if (result.optBoolean("ok")) push("vision", result.toString())
+                else runOcr(path, result.optString("error", "vlm failed"))
+            }
+        } else {
+            runOcr(path, v?.status()?.optString("error") ?: "vlm not loaded")
+        }
+    }
+
+    private fun runOcr(path: String, vlmError: String) {
+        val o = ocr
+        if (o == null) {
+            push("vision", JSONObject().put("ok", false)
+                .put("error", vlmError).toString())
+            return
+        }
+        o.extract(path) { result ->
+            // Keep why the VLM was skipped, so the gap stays visible rather
+            // than silently looking like the model did the work.
+            result.put("vlmError", vlmError)
+            push("vision", result.toString())
+        }
+    }
+
+    @JavascriptInterface
+    fun visionStatus(): String =
+        (vision?.status() ?: JSONObject().put("ok", false).put("error", "no engine")).toString()
+
+    /**
+     * Audio -> text. NOT IMPLEMENTED: GenieX 0.4.0 ships no ASR - it bundles
+     * llama.cpp and ggml, but no whisper.cpp and no speech class. Reports the
+     * gap honestly so the UI falls back to typing rather than pretending.
+     */
+    @JavascriptInterface
+    fun transcribe(path: String) {
+        push(
+            "transcript",
+            JSONObject().put("ok", false)
+                .put("error", "no on-device ASR: GenieX 0.4.0 ships no whisper runtime")
+                .put("path", path).toString()
+        )
+    }
+
     /** Set by MainActivity once the Activity exists. */
     var realCamera: CameraCapture? = null
     var audio: AudioRecorder? = null
+    var vision: VisionEngine? = null
+    var ocr: OcrEngine? = null
 
     /** GenieX binding is PRESENT but deliberately NOT WIRED yet. */
     @JavascriptInterface

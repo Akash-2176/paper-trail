@@ -98,6 +98,64 @@ var PTBridge = (function () {
     if (isDevice && native.requestSmsPermission) safe(function () { native.requestSmsPermission(); });
   }
 
+  /* Camera viewfinder. Result arrives as a 'cameraOpen' push. */
+  function openCamera(cb) {
+    if (!isDevice || typeof native.openCamera !== 'function') {
+      cb({ ok: true, preview: false, stub: true });
+      return;
+    }
+    window.__ptCameraCb = cb;
+    safe(function () { native.openCamera(); });
+    setTimeout(function () {
+      if (window.__ptCameraCb === cb) {
+        window.__ptCameraCb = null;
+        cb({ ok: false, error: 'camera open timed out' });
+      }
+    }, 8000);
+  }
+
+  function closeCamera() {
+    if (isDevice && native.closeCamera) safe(function () { native.closeCamera(); });
+  }
+
+  /* Receipt -> text via the on-device VLM. Result arrives as a 'vision' push.
+   * Generous timeout: a multi-GB model on CPU is not fast. */
+  function visionExtract(path, cb) {
+    if (!isDevice || typeof native.visionExtract !== 'function') {
+      cb({ ok: false, error: 'no vision on desktop', source: 'none' });
+      return;
+    }
+    window.__ptVisionCb = cb;
+    safe(function () { native.visionExtract(path); });
+    setTimeout(function () {
+      if (window.__ptVisionCb === cb) {
+        window.__ptVisionCb = null;
+        cb({ ok: false, error: 'vision timed out', source: 'none' });
+      }
+    }, 60000);
+  }
+
+  function visionStatus() {
+    if (!isDevice || typeof native.visionStatus !== 'function') return { ok: false };
+    return safe(function () { return asObj(native.visionStatus(), { ok: false }); }, { ok: false });
+  }
+
+  /* Audio -> text. Currently always fails: no ASR runtime on device. */
+  function transcribe(path, cb) {
+    if (!isDevice || typeof native.transcribe !== 'function') {
+      cb({ ok: false, error: 'no transcription available', source: 'none' });
+      return;
+    }
+    window.__ptTranscriptCb = cb;
+    safe(function () { native.transcribe(path); });
+    setTimeout(function () {
+      if (window.__ptTranscriptCb === cb) {
+        window.__ptTranscriptCb = null;
+        cb({ ok: false, error: 'transcription timed out', source: 'none' });
+      }
+    }, 60000);
+  }
+
   function simulateSmsChange() {
     if (isDevice && native.simulateSmsChange) safe(function () { native.simulateSmsChange(); });
   }
@@ -105,6 +163,11 @@ var PTBridge = (function () {
   return {
     asObj: asObj,
     isDevice: isDevice,
+    openCamera: openCamera,
+    closeCamera: closeCamera,
+    visionExtract: visionExtract,
+    visionStatus: visionStatus,
+    transcribe: transcribe,
     readSms: readSms,
     capturePhoto: capturePhoto,
     startRecording: startRecording,

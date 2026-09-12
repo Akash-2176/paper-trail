@@ -5,6 +5,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.view.PreviewView
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
@@ -27,6 +29,13 @@ class CameraCapture(private val act: AppCompatActivity) {
 
     private var imageCapture: ImageCapture? = null
     private var bound = false
+    private var provider: ProcessCameraProvider? = null
+
+    /**
+     * Optional viewfinder. The WebView sits on top with a transparent hole
+     * punched through it, so the preview shows behind the capture sheet.
+     */
+    var previewView: PreviewView? = null
 
     fun capturesDir(): File = File(act.filesDir, DIR).apply { mkdirs() }
 
@@ -36,21 +45,48 @@ class CameraCapture(private val act: AppCompatActivity) {
         val future = ProcessCameraProvider.getInstance(act)
         future.addListener({
             try {
-                val provider = future.get()
+                val p = future.get()
+                provider = p
                 val ic = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .build()
-                provider.unbindAll()
-                provider.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, ic)
+                p.unbindAll()
+
+                val pv = previewView
+                if (pv != null) {
+                    val preview = Preview.Builder().build()
+                    preview.surfaceProvider = pv.surfaceProvider
+                    p.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, preview, ic)
+                    Log.i(TAG, "camera: bound with preview")
+                } else {
+                    p.bindToLifecycle(act, CameraSelector.DEFAULT_BACK_CAMERA, ic)
+                    Log.i(TAG, "camera: bound (no preview)")
+                }
                 imageCapture = ic
                 bound = true
-                Log.i(TAG, "camera: bound")
                 onReady(true)
             } catch (e: Exception) {
                 Log.e(TAG, "camera: bind failed: ${e.message}")
                 onReady(false)
             }
         }, ContextCompat.getMainExecutor(act))
+    }
+
+    /** Start the viewfinder. onReady reports whether a live preview exists. */
+    fun open(onReady: (Boolean, Boolean) -> Unit) {
+        ensureBound { ok -> onReady(ok, ok && previewView != null) }
+    }
+
+    /** Release the sensor. Leaving it bound keeps the camera hot. */
+    fun close() {
+        try {
+            provider?.unbindAll()
+            bound = false
+            imageCapture = null
+            Log.i(TAG, "camera: released")
+        } catch (e: Exception) {
+            Log.e(TAG, "camera: release failed: ${e.message}")
+        }
     }
 
     /**

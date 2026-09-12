@@ -23,6 +23,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: Bridge
     private lateinit var watcher: SmsWatcher
+    private lateinit var previewView: androidx.camera.view.PreviewView
+    private lateinit var vision: VisionEngine
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,8 +37,28 @@ class MainActivity : AppCompatActivity() {
         // SPIKE-FINDINGS §3: foreground service is required, not defensive.
         KeepAliveService.start(this)
 
+        // PreviewView underneath, WebView on top. The WebView is transparent so
+        // the viewfinder shows through wherever the page paints nothing.
+        previewView = androidx.camera.view.PreviewView(this)
         webView = WebView(this)
-        setContentView(webView)
+        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+
+        val root = android.widget.FrameLayout(this)
+        root.addView(
+            previewView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        root.addView(
+            webView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        setContentView(root)
 
         WebView.setWebContentsDebuggingEnabled(true)
 
@@ -69,8 +91,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         bridge = Bridge(this, webView, CameraStub(this), GenieBinding(this))
-        bridge.realCamera = CameraCapture(this)
+        val cam = CameraCapture(this)
+        cam.previewView = previewView
+        vision = VisionEngine(this)
+        bridge.realCamera = cam
         bridge.audio = AudioRecorder(this)
+        bridge.vision = vision
+        bridge.ocr = OcrEngine(this)
+        // Loading a multi-GB VLM takes time; start as early as possible so the
+        // first receipt capture is not the thing that waits for it.
+        vision.warmUp()
         webView.addJavascriptInterface(bridge, Bridge.NAME)
 
         // ContentObserver, not a BroadcastReceiver (ADR-001 holds: SMS still does not
@@ -112,6 +142,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         watcher.unregister()
+        vision.close()
         webView.destroy()
         super.onDestroy()
     }

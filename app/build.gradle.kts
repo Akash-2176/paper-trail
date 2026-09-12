@@ -42,6 +42,14 @@ android {
     }
     packaging {
         resources.excludes += setOf("META-INF/*.version", "META-INF/DEPENDENCIES")
+        // GenieX dlopen()s its plugin .so files by name at runtime, so they must
+        // exist as real files in the native lib dir rather than staying compressed
+        // inside the APK. Without this the SDK reports
+        // "Cannot find libgeniex_plugin_llama_cpp.so".
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/*.so"
+        }
     }
 }
 
