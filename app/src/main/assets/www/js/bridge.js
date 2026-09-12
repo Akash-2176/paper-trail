@@ -30,6 +30,15 @@ var PTBridge = (function () {
     ];
   }
 
+  /* Bridge.push() injects raw JSON into evaluateJavascript, so PTOnEvent receives
+   * a live object, not a string. readSms() by contrast returns a string. Accept
+   * either rather than assuming. */
+  function asObj(v, fallback) {
+    if (v == null) return fallback;
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(v); } catch (e) { return fallback; }
+  }
+
   function safe(fn, fallback) {
     try { return fn(); } catch (e) { log('bridge fallback: ' + e); return fallback; }
   }
@@ -43,7 +52,7 @@ var PTBridge = (function () {
     if (!isDevice) return fixtures();
     return safe(function () {
       var r = native.readSms(limit || 200);
-      return typeof r === 'string' ? JSON.parse(r) : (r || []);
+      return asObj(r, []);
     }, []);
   }
 
@@ -55,22 +64,29 @@ var PTBridge = (function () {
     // Native returns immediately with a pending marker; completion arrives as a
     // PTOnEvent('capture') push. Fall back to the sync result if it is final.
     window.__ptCaptureCb = cb;
-    var r = safe(function () { return JSON.parse(native.capturePhoto()); }, { ok: false });
+    var r = safe(function () { return asObj(native.capturePhoto(), { ok: false }); }, { ok: false });
     if (r && r.ok && !r.pending) { window.__ptCaptureCb = null; cb(r); }
+    // Safety net: if the push never lands, do not leave the UI waiting forever.
+    setTimeout(function () {
+      if (window.__ptCaptureCb === cb) {
+        window.__ptCaptureCb = null;
+        cb({ ok: false, error: 'capture timed out' });
+      }
+    }, 6000);
   }
 
   function startRecording() {
     if (!isDevice || typeof native.startRecording !== 'function') {
       return { ok: true, stub: true };
     }
-    return safe(function () { return JSON.parse(native.startRecording()); }, { ok: false });
+    return safe(function () { return asObj(native.startRecording(), { ok: false }); }, { ok: false });
   }
 
   function stopRecording() {
     if (!isDevice || typeof native.stopRecording !== 'function') {
       return { ok: true, stub: true, path: '/desktop/fake-audio.wav' };
     }
-    return safe(function () { return JSON.parse(native.stopRecording()); }, { ok: false });
+    return safe(function () { return asObj(native.stopRecording(), { ok: false }); }, { ok: false });
   }
 
   function hasSms() {
@@ -87,6 +103,7 @@ var PTBridge = (function () {
   }
 
   return {
+    asObj: asObj,
     isDevice: isDevice,
     readSms: readSms,
     capturePhoto: capturePhoto,

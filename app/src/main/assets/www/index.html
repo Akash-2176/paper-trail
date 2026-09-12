@@ -264,15 +264,14 @@ $('bReconcile').onclick = runReconcile;
 // native -> JS push. ContentObserver fires this when the inbox changes.
 window.PTOnEvent = function (name, payload) {
   if (name === 'sms') {
-    var rows = [];
-    try { rows = typeof payload === 'string' ? JSON.parse(payload) : payload; } catch (e) {}
+    var rows = PTBridge.asObj(payload, []);
     PTStore.setTxns(rows || []);
     PTBridge.log('observer push rows=' + (rows || []).length);
     runReconcile();
     return;
   }
   if (name === 'capture') {
-    var r = {}; try { r = JSON.parse(payload); } catch (e) {}
+    var r = PTBridge.asObj(payload, { ok: false });
     if (window.__ptCaptureCb) { var cb = window.__ptCaptureCb; window.__ptCaptureCb = null; cb(r); }
     return;
   }
