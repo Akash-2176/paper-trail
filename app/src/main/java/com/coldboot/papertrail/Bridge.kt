@@ -79,8 +79,13 @@ class Bridge(
         ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
 
     @JavascriptInterface
-    fun stopRecording(): String = (audio?.stop()
-        ?: JSONObject().put("ok", false).put("error", "no recorder")).toString()
+    fun stopRecording(): String {
+        val r = audio?.stop()
+            ?: JSONObject().put("ok", false).put("error", "no recorder")
+        // WAV clips accumulate the same way captures did; keep them bounded too.
+        ImagePrep.trim(java.io.File(ctx.filesDir, "audio"), 8)
+        return r.toString()
+    }
 
     /** Start the viewfinder. Result arrives as a 'cameraOpen' push. */
     @JavascriptInterface
@@ -116,6 +121,8 @@ class Bridge(
         // Downscale once, up front. A raw 12MP capture exceeds the VLM's context
         // entirely and slows OCR down for no accuracy gain.
         val prepared = ImagePrep.prepare(path)
+        // Keep captures/ bounded; it reached 49MB in one afternoon unchecked.
+        ImagePrep.trim(java.io.File(ctx.filesDir, "captures"))
 
         /* OCR FIRST, deliberately.
          *
@@ -182,24 +189,73 @@ class Bridge(
         (vision?.status() ?: JSONObject().put("ok", false).put("error", "no engine")).toString()
 
     /**
-     * Audio -> text. NOT IMPLEMENTED: GenieX 0.4.0 ships no ASR - it bundles
-     * llama.cpp and ggml, but no whisper.cpp and no speech class. Reports the
-     * gap honestly so the UI falls back to typing rather than pretending.
+     * Audio -> text. Uses Android's on-device recogniser rather than a bundled
+     * Whisper: zero added app size, no model download, and it never leaves the
+     * device. GenieX 0.4.0 ships no ASR of its own.
+     *
+     * The file-based form is kept for the recorded WAV, but the recogniser works
+     * on a live mic stream, so [startListening] is the real path.
      */
     @JavascriptInterface
     fun transcribe(path: String) {
         push(
             "transcript",
             JSONObject().put("ok", false)
-                .put("error", "no on-device ASR: GenieX 0.4.0 ships no whisper runtime")
+                .put("error", "file transcription unsupported; use live listening")
                 .put("path", path).toString()
         )
     }
+
+    /** Live on-device speech. Result arrives as a 'transcript' push. */
+    @JavascriptInterface
+    fun startListening() {
+        val s = speech
+        if (s == null) {
+            push("transcript", JSONObject().put("ok", false)
+                .put("error", "no speech engine").toString())
+            return
+        }
+        s.onPartial = { text ->
+            push("partial", JSONObject().put("text", text).toString())
+        }
+        s.start { result -> push("transcript", result.toString()) }
+    }
+
+    @JavascriptInterface
+    fun stopListening() {
+        speech?.stop()
+    }
+
+    @JavascriptInterface
+    fun cancelListening() {
+        speech?.cancel()
+    }
+
+    @JavascriptInterface
+    fun speechStatus(): String =
+        (speech?.status() ?: JSONObject().put("available", false)).toString()
+
+    // --- persistence ------------------------------------------------------
+
+    /** The ledger survives restarts; only SMS was durable before. */
+    @JavascriptInterface
+    fun loadLedger(): String = LocalStore.load(ctx)
+
+    @JavascriptInterface
+    fun saveLedger(json: String): Boolean = LocalStore.save(ctx, json)
+
+    @JavascriptInterface
+    fun clearLedger(): Boolean = LocalStore.clear(ctx)
+
+    /** Observable storage footprint, so growth is measured rather than assumed. */
+    @JavascriptInterface
+    fun storageUsage(): String = LocalStore.usage(ctx)
 
     /** Set by MainActivity once the Activity exists. */
     var realCamera: CameraCapture? = null
     var audio: AudioRecorder? = null
     var vision: VisionEngine? = null
+    var speech: SpeechEngine? = null
     var ocr: OcrEngine? = null
 
     /** GenieX binding is PRESENT but deliberately NOT WIRED yet. */

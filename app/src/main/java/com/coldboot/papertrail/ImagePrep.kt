@@ -27,6 +27,49 @@ object ImagePrep {
     const val MAX_EDGE = 1024
 
     /**
+     * How many prepared captures to keep. A receipt image is evidence for a
+     * ledger entry, so a few are worth holding, but storage must stay bounded -
+     * an unbounded captures/ reached 49MB in a single afternoon.
+     */
+    private const val KEEP_CAPTURES = 12
+
+    /**
+     * Total ceiling for the captures directory. The file count alone is not a
+     * guarantee: an image that never went through prepare() is full-size, so 12
+     * of those would still be tens of megabytes. This bounds the bytes directly.
+     */
+    private const val MAX_DIR_BYTES = 8L * 1024 * 1024
+
+    /**
+     * Trim a directory to the newest [keep] files. Called after each capture so
+     * the footprint plateaus instead of growing for the life of the install.
+     */
+    fun trim(dir: File, keep: Int = KEEP_CAPTURES) {
+        try {
+            val files = dir.listFiles()?.filter { it.isFile } ?: return
+            val newestFirst = files.sortedByDescending { it.lastModified() }
+
+            // Drop anything past the count limit.
+            newestFirst.drop(keep).forEach {
+                val n = it.name
+                if (it.delete()) Log.i(TAG, "prep: evicted $n (count)")
+            }
+
+            // Then walk newest-first and cut once the byte budget is spent.
+            var used = 0L
+            newestFirst.take(keep).forEach {
+                used += it.length()
+                if (used > MAX_DIR_BYTES) {
+                    val n = it.name
+                    if (it.delete()) Log.i(TAG, "prep: evicted $n (size)")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "prep: trim failed: ${e.message}")
+        }
+    }
+
+    /**
      * Returns a downscaled copy, or the original path when no work is needed.
      * Never throws - on any failure the caller gets the original image back,
      * because a capture that cannot be prepared should still be readable.
@@ -75,6 +118,14 @@ object ImagePrep {
                 TAG, "prep: ${w}x${h} -> ${rotated.width}x${rotated.height} " +
                     "(${src.length() / 1024}KB -> ${out.length() / 1024}KB)"
             )
+
+            /* The full-resolution original has served its purpose: everything
+             * downstream reads the prepared copy. Keeping it grew captures/ to
+             * 49MB over one afternoon of testing, unbounded. Delete it here so
+             * storage stays flat no matter how long a demo runs. */
+            if (src.delete()) {
+                Log.i(TAG, "prep: released original (${w}x${h})")
+            }
             out.absolutePath
         } catch (e: Throwable) {
             Log.e(TAG, "prep: failed, using original: ${e.message}")

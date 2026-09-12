@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
         bridge.audio = AudioRecorder(this)
         bridge.vision = vision
         bridge.ocr = OcrEngine(this)
+        bridge.speech = SpeechEngine(this)
         // Loading a multi-GB VLM takes time; start as early as possible so the
         // first receipt capture is not the thing that waits for it.
         vision.warmUp()
