@@ -6,114 +6,282 @@
 <title>Paper Trail</title>
 <style>
   :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
-    margin: 0; padding: 16px;
+    margin: 0; padding: 12px 12px 40px;
     background: #0d0f12; color: #e6e8eb;
-    font: 14px/1.5 -apple-system, Roboto, system-ui, sans-serif;
+    font: 14px/1.45 -apple-system, Roboto, system-ui, sans-serif;
   }
-  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .01em; }
-  .sub { color: #7e8794; font-size: 12px; margin-bottom: 14px; }
-  .marker {
-    display: inline-block; padding: 2px 8px; border-radius: 999px;
-    background: #16301f; color: #4ade80; font-size: 11px;
-    font-variant-numeric: tabular-nums;
+  header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .01em; }
+  .marker { margin-left: auto; font-size: 10px; color: #4ade80;
+            background: #16301f; padding: 2px 7px; border-radius: 99px;
+            font-variant-numeric: tabular-nums; }
+
+  .capture { background: #14171c; border: 1px solid #232930; border-radius: 10px;
+             padding: 10px; margin-bottom: 12px; }
+  .capture .row { display: flex; gap: 6px; }
+  input {
+    flex: 1 1 auto; min-width: 0; padding: 9px 10px; font-size: 14px;
+    background: #0d0f12; color: #e6e8eb; border: 1px solid #2b323c;
+    border-radius: 7px; font-family: inherit;
   }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  input#amt { flex: 0 0 96px; }
   button {
-    flex: 1 1 auto; min-width: 96px; padding: 10px 12px;
-    background: #1a1e24; color: #e6e8eb;
-    border: 1px solid #2b323c; border-radius: 8px;
-    font-size: 13px; font-family: inherit;
+    padding: 9px 12px; background: #1f2630; color: #e6e8eb;
+    border: 1px solid #2b323c; border-radius: 7px; font-size: 13px;
+    font-family: inherit; white-space: nowrap;
   }
-  button:active { background: #232932; }
-  pre {
-    background: #14171c; border: 1px solid #232930; border-radius: 8px;
-    padding: 12px; overflow-x: auto; font-size: 11px; line-height: 1.45;
-    white-space: pre-wrap; word-break: break-word; margin: 0;
-    max-height: 62vh; overflow-y: auto;
+  button:active { background: #2a323e; }
+  button.primary { background: #1d4ed8; border-color: #2563eb; font-weight: 600; }
+  button.rec { background: #7f1d1d; border-color: #991b1b; }
+  .btns { display: flex; gap: 6px; margin-top: 6px; }
+  .btns button { flex: 1 1 0; }
+
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+       color: #7e8794; margin: 14px 0 6px; display: flex; gap: 6px; align-items: center; }
+  .count { background: #1f2630; color: #9aa4b2; border-radius: 99px;
+           padding: 0 6px; font-size: 10px; }
+
+  .card { background: #14171c; border: 1px solid #232930; border-radius: 9px;
+          padding: 9px 10px; margin-bottom: 6px; }
+  .card.pending { border-left: 3px solid #f59e0b; }
+  .card.txn     { border-left: 3px solid #3b82f6; }
+  .card.merged  { border-left: 3px solid #22c55e; }
+  .card.flash   { animation: flash .9s ease-out; }
+  @keyframes flash {
+    0%   { background: #14532d; transform: scale(1.02); }
+    100% { background: #14171c; transform: scale(1); }
   }
-  .err { color: #f87171; }
+  .amt { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .amt.credit { color: #4ade80; }
+  .top { display: flex; align-items: baseline; gap: 8px; }
+  .who { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: #7e8794; font-size: 11px; margin-top: 2px; }
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 99px;
+           background: #1f2630; color: #9aa4b2; }
+  .badge.auto { background: #14532d; color: #4ade80; }
+  .badge.p2p  { background: #3b2410; color: #fbbf24; }
+  .empty { color: #5b636e; font-size: 12px; padding: 6px 2px; }
+  .confirm { border-left: 3px solid #a855f7; }
+  .confirm .btns { margin-top: 7px; }
+  .why { color: #6b7280; font-size: 10px; margin-top: 3px; }
 </style>
 </head>
 <body>
 
-<h1>Paper Trail &mdash; shell</h1>
-<div class="sub">
-  product layer &middot; plain JS, no build step (ADR-011) &middot;
+<header>
+  <h1>Paper Trail</h1>
   <span class="marker" id="marker">boot</span>
+</header>
+
+<div class="capture">
+  <div class="row">
+    <input id="amt" type="number" inputmode="decimal" placeholder="₹ amt">
+    <input id="note" type="text" placeholder="what was it? (e.g. swiggy dinner)">
+  </div>
+  <div class="btns">
+    <button class="primary" id="bManual">+ Spend</button>
+    <button id="bPhoto">📷 Photo</button>
+    <button id="bVoice">🎙 Voice</button>
+  </div>
+  <div class="btns">
+    <button id="bRefresh">↻ Read SMS</button>
+    <button id="bReconcile">⇄ Reconcile</button>
+  </div>
 </div>
 
-<div class="row">
-  <button onclick="callBridge('ping')">ping</button>
-  <button onclick="callBridge('readSms', 25)">readSms</button>
-  <button onclick="callBridge('capturePhoto')">capture</button>
-  <button onclick="callBridge('genieStatus')">genie</button>
-  <button onclick="callBridge('hasSmsPermission')">perm?</button>
-  <button onclick="callBridge('requestSmsPermission')">grant</button>
-</div>
+<h2>Reconciled <span class="count" id="cRec">0</span></h2>
+<div id="recList"><div class="empty">nothing merged yet</div></div>
 
-<pre id="out">tap a button</pre>
+<h2>Pending <span class="count" id="cPend">0</span></h2>
+<div id="pendList"><div class="empty">no captures yet</div></div>
 
+<h2>Transactions <span class="count" id="cTxn">0</span></h2>
+<div id="txnList"><div class="empty">tap "Read SMS"</div></div>
+
+<script src="js/reconcile.js"></script>
+<script src="js/store.js"></script>
+<script src="js/bridge.js"></script>
 <script>
-// RELOAD MARKER - bump this string on every push so a hot reload is visibly proven.
-var BUILD_MARKER = 'shell-v1';
+var BUILD_MARKER = 'demo-v1';
+var recording = false;
+var pendingConfirms = [];
 
-var out = document.getElementById('out');
-var marker = document.getElementById('marker');
-
+function $(id) { return document.getElementById(id); }
+function money(n) { return '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2}); }
+function ago(ts) {
+  var d = Math.round((Date.now() - ts) / 1000);
+  if (d < 60) return d + 's ago';
+  if (d < 3600) return Math.round(d / 60) + 'm ago';
+  return Math.round(d / 3600) + 'h ago';
+}
 function stamp() {
-  var t = new Date().toTimeString().slice(0, 8);
-  marker.textContent = BUILD_MARKER + ' @ ' + t;
+  $('marker').textContent = BUILD_MARKER + ' ' + new Date().toTimeString().slice(0, 8);
 }
 
-function show(label, value) {
-  var body;
-  try {
-    body = typeof value === 'string' ? JSON.parse(value) : value;
-    body = JSON.stringify(body, null, 2);
-  } catch (e) {
-    body = String(value);
-  }
-  out.textContent = label + '\n\n' + body;
-  if (window.PT && PT.log) PT.log(label + ' -> ok');
+function render(flashIds) {
+  flashIds = flashIds || {};
+  var S = PTStore;
+
+  // reconciled
+  var rec = S.reconciled.slice().reverse();
+  $('cRec').textContent = rec.length;
+  $('recList').innerHTML = rec.length ? rec.map(function (r) {
+    return '<div class="card merged ' + (flashIds[r.id] ? 'flash' : '') + '">' +
+      '<div class="top"><span class="amt">' + money(r.txn.amount) + '</span>' +
+      '<span class="who">' + esc(r.pending.note || r.txn.counterparty || '—') + '</span>' +
+      '<span class="badge ' + (r.auto ? 'auto' : '') + '">' +
+        (r.auto ? 'auto ' : 'confirmed ') + Math.round(r.confidence * 100) + '%</span></div>' +
+      '<div class="meta">' + esc(r.txn.issuer || 'cash') +
+        ' · ' + esc(r.txn.counterparty || '') +
+        (r.txn.acctLast4 ? ' · ••' + r.txn.acctLast4 : '') + '</div>' +
+      '<div class="why">' + esc((r.reasons || []).join(' · ')) + '</div>' +
+    '</div>';
+  }).join('') : '<div class="empty">nothing merged yet</div>';
+
+  // confirm prompts + pending
+  var html = pendingConfirms.map(function (c, i) {
+    return '<div class="card confirm">' +
+      '<div class="top"><span class="amt">' + money(c.pending.amount) + '</span>' +
+      '<span class="who">' + esc(c.pending.note || c.pending.source) + '</span></div>' +
+      '<div class="meta">possible match: ' + money(c.cand.txn.amount) + ' ' +
+        esc(c.cand.txn.counterparty || '') + ' · ' +
+        Math.round(c.cand.confidence * 100) + '%</div>' +
+      '<div class="why">' + esc((c.cand.reasons || []).join(' · ')) + '</div>' +
+      '<div class="btns"><button onclick="doConfirm(' + i + ')">Merge</button>' +
+      '<button onclick="dismissConfirm(' + i + ')">Not this</button></div>' +
+    '</div>';
+  }).join('');
+
+  var pend = S.pending.slice().reverse();
+  $('cPend').textContent = pend.length;
+  html += pend.map(function (p) {
+    return '<div class="card pending">' +
+      '<div class="top"><span class="amt">' + money(p.amount) + '</span>' +
+      '<span class="who">' + esc(p.note || '(no note)') + '</span>' +
+      '<span class="badge">' + p.source + '</span></div>' +
+      '<div class="meta">' + ago(p.ts) + ' · waiting for bank SMS</div>' +
+    '</div>';
+  }).join('');
+  $('pendList').innerHTML = html || '<div class="empty">no captures yet</div>';
+
+  // transactions (unmerged only)
+  var un = S.txns.filter(function (t) { return !S.isMerged(t.id); });
+  $('cTxn').textContent = un.length;
+  $('txnList').innerHTML = un.length ? un.map(function (t) {
+    var cr = t.direction === 'credit';
+    return '<div class="card txn">' +
+      '<div class="top"><span class="amt ' + (cr ? 'credit' : '') + '">' +
+        (cr ? '+' : '') + money(t.amount) + '</span>' +
+      '<span class="who">' + esc(t.counterparty || '—') + '</span>' +
+      (t.kind === 'p2p' ? '<span class="badge p2p">p2p</span>' : '') + '</div>' +
+      '<div class="meta">' + esc(t.issuer || '?') + ' · ' + ago(t.ts) +
+        (t.acctLast4 ? ' · ••' + t.acctLast4 : '') +
+        (t.senderRouted ? '' : ' · body-sig') + '</div>' +
+    '</div>';
+  }).join('') : '<div class="empty">no unmatched transactions</div>';
 }
 
-function callBridge(method, arg) {
-  if (!window.PT) {
-    out.innerHTML = '<span class="err">window.PT missing - bridge not attached</span>';
-    return;
-  }
-  if (typeof PT[method] !== 'function') {
-    out.innerHTML = '<span class="err">PT.' + method + ' is not a function</span>';
-    return;
-  }
-  try {
-    var r = (arg === undefined) ? PT[method]() : PT[method](arg);
-    show(method + '()', r);
-  } catch (e) {
-    out.innerHTML = '<span class="err">' + method + ' threw: ' + e + '</span>';
-    if (PT.log) PT.log(method + ' threw: ' + e);
-  }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// native -> JS push target. Bridge.push() calls this.
-// Events: 'permissions' (grant result), 'sms' (ContentObserver re-read).
+function refreshSms(silent) {
+  var rows = PTBridge.readSms(200);
+  PTStore.setTxns(rows);
+  PTBridge.log('sms rows=' + rows.length);
+  if (!silent) render();
+  return rows.length;
+}
+
+function runReconcile() {
+  var r = PTStore.reconcileAll();
+  pendingConfirms = r.confirm;
+  var flash = {};
+  r.merged.forEach(function (m) { flash[m.id] = 1; });
+  stamp();
+  render(flash);
+  PTBridge.log('reconcile merged=' + r.merged.length + ' confirm=' + r.confirm.length);
+  return r;
+}
+
+function doConfirm(i) {
+  var c = pendingConfirms[i];
+  if (!c) return;
+  var m = PTStore.confirmMerge(c.pending.id, c.cand.txn.id);
+  pendingConfirms.splice(i, 1);
+  var flash = {}; if (m) flash[m.id] = 1;
+  render(flash);
+}
+function dismissConfirm(i) { pendingConfirms.splice(i, 1); render(); }
+
+function capture(source, extra) {
+  var amt = parseFloat($('amt').value);
+  if (!(amt > 0)) { $('amt').focus(); return null; }
+  var p = PTStore.addPending({
+    amount: amt,
+    note: $('note').value || (extra && extra.note) || source,
+    source: source,
+    path: extra && extra.path || null,
+    direction: 'debit'
+  });
+  $('amt').value = ''; $('note').value = '';
+  render();
+  // A capture immediately re-reads and attempts reconciliation, so the merge
+  // lands without another tap when the SMS is already in the inbox.
+  refreshSms(true);
+  runReconcile();
+  return p;
+}
+
+$('bManual').onclick = function () { capture('manual'); };
+
+$('bPhoto').onclick = function () {
+  PTBridge.capturePhoto(function (r) {
+    PTBridge.log('photo ' + JSON.stringify(r));
+    capture('photo', { path: r && r.path, note: $('note').value || 'receipt' });
+  });
+};
+
+$('bVoice').onclick = function () {
+  if (!recording) {
+    var r = PTBridge.startRecording();
+    if (r && r.ok) { recording = true; $('bVoice').textContent = '⏹ Stop'; $('bVoice').className = 'rec'; }
+    PTBridge.log('rec start ' + JSON.stringify(r));
+  } else {
+    var s = PTBridge.stopRecording();
+    recording = false; $('bVoice').textContent = '🎙 Voice'; $('bVoice').className = '';
+    PTBridge.log('rec stop ' + JSON.stringify(s));
+    capture('voice', { path: s && s.path, note: $('note').value || 'voice note' });
+  }
+};
+
+$('bRefresh').onclick = function () { refreshSms(); stamp(); };
+$('bReconcile').onclick = runReconcile;
+
+// native -> JS push. ContentObserver fires this when the inbox changes.
 window.PTOnEvent = function (name, payload) {
   if (name === 'sms') {
-    var n = '?';
-    try { n = JSON.parse(payload).length; } catch (e) {}
-    stamp();
-    show('PUSH: sms (observer) rows=' + n, payload);
+    var rows = [];
+    try { rows = typeof payload === 'string' ? JSON.parse(payload) : payload; } catch (e) {}
+    PTStore.setTxns(rows || []);
+    PTBridge.log('observer push rows=' + (rows || []).length);
+    runReconcile();
     return;
   }
-  show('PUSH: ' + name, payload);
+  if (name === 'capture') {
+    var r = {}; try { r = JSON.parse(payload); } catch (e) {}
+    if (window.__ptCaptureCb) { var cb = window.__ptCaptureCb; window.__ptCaptureCb = null; cb(r); }
+    return;
+  }
+  if (name === 'permissions') { refreshSms(); }
 };
 
 stamp();
-if (window.PT && PT.log) PT.log('page ready, marker=' + BUILD_MARKER);
-// Auto-ping on load so a broken bridge is obvious without tapping anything.
-if (window.PT) { try { show('ping() auto', PT.ping()); } catch (e) {} }
+refreshSms();
+PTBridge.log('ui ready device=' + PTBridge.isDevice + ' marker=' + BUILD_MARKER);
 </script>
 
 </body>
