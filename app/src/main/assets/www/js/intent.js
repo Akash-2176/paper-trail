@@ -12,10 +12,11 @@
  * So the router may decide an utterance is a query about "college project";
  * the total it reports is computed by PTMemory from ledger rows, every time.
  *
- * The deterministic router below runs first and answers in microseconds. The
- * LLM is consulted only when the deterministic pass is genuinely unsure, and
- * its answer is still validated against the same schema. That ordering keeps
- * the demo independent of model availability (no NPU, no GGUF, no problem).
+ * route() sends every utterance to the on-device model FIRST (Qwen3-1.7B on the
+ * Hexagon NPU, ~430ms) and uses the deterministic rules below as the fallback
+ * when the model is unavailable, slow, or returns something off-schema. The
+ * callback shape is identical either way, so callers never branch on which path
+ * ran - and with no model present the rules still answer everything.
  */
 
 var PTIntent = (function () {
@@ -162,26 +163,70 @@ var PTIntent = (function () {
    */
   function route(text, cb) {
     var det = classify(text);
-    // Confident rules answer immediately - no model, no latency, no NPU need.
-    if (det.confidence >= 0.8 || !PTBridge.llmAvailable ||
-        !PTBridge.llmAvailable()) {
+
+    /* MODEL FIRST, rules as the safety net.
+     *
+     * This used to be inverted: the rules answered anything they scored >= 0.8,
+     * which is almost everything, so the NPU model was consulted about once in
+     * twenty utterances. We were shipping a 1.5GB model the product did not
+     * use.
+     *
+     * Language understanding is what a language model is for. Rules match
+     * fixed phrasings and miss anything said differently - "put that against
+     * the project" is obvious to a person and invisible to a regex. At ~430ms
+     * on the NPU the model is affordable on a spoken utterance, so it goes
+     * first and the rules catch the cases where it is unavailable, slow, or
+     * returns something outside the schema.
+     *
+     * ADR-004 is untouched. The model picks a LABEL. Every number below is
+     * re-parsed from the raw text by deterministic code, whichever path ran. */
+    if (!PTBridge.llmAvailable || !PTBridge.llmAvailable()) {
+      det.via = 'rules (no model)';
       cb(det);
       return;
     }
-    // Ambiguous: ask the model to pick a label, then re-validate.
+
+    var settled = false;
+    function answer(r) {
+      if (settled) return;
+      settled = true;
+      cb(r);
+    }
+
+    /* Never let a slow model stall a capture: fall back to rules on time.
+     *
+     * Steady state is ~430ms, but the first classification after launch can
+     * reach ~4.7s while the VLM is still loading and both engines contend for
+     * the DSP. 6s covers that without leaving a user waiting on a stall. */
+    var timer = setTimeout(function () {
+      det.via = 'rules (model slow)';
+      answer(det);
+    }, 6000);
+
     PTBridge.classifyIntent(text, function (res) {
-      if (!res || !res.ok || !res.intent) { cb(det); return; }
+      clearTimeout(timer);
       var allowed = { capture: 1, context: 1, query: 1 };
-      if (!allowed[res.intent]) { cb(det); return; }
-      cb({
+      if (!res || !res.ok || !allowed[res.intent]) {
+        det.via = 'rules (model ' + ((res && res.error) || 'invalid') + ')';
+        answer(det);
+        return;
+      }
+      /* The model names the INTENT. The query it maps to is still chosen by
+       * deterministic code, so a hallucinated function name cannot run. */
+      var queryName = det.queryName;
+      if (res.intent === 'query' && !queryName) queryName = 'spendByPurpose';
+
+      answer({
         intent: res.intent,
-        queryName: res.queryName || det.queryName,
+        queryName: queryName,
         subject: tidy(res.subject || det.subject || ''),
         purpose: tidy(res.purpose || det.purpose || ''),
-        // The model never supplies money; re-parse it from the text ourselves.
+        // Money never comes from the model.
         amount: PTExtract.parseAmount(text),
         note: PTExtract.noteFromSpeech(text),
-        confidence: 0.7,
+        confidence: 0.85,
+        ms: res.ms,
+        computeUnit: res.computeUnit,
         via: 'llm'
       });
     });

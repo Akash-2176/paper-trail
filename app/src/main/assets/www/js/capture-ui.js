@@ -224,7 +224,21 @@ var PTCapture = (function () {
      * last capture, and "how much on my project?" is a question, neither of
      * which should create a transaction. The amount is still parsed by
      * deterministic code either way (ADR-004). */
-    var routed = text ? PTIntent.classify(text) : { intent: 'capture' };
+    /* Route through the model, not the rules. classify() is synchronous and
+     * regex-only; route() consults the NPU first and falls back to the same
+     * rules if it is unavailable or slow. */
+    if (!text) { finishVoiceWith({ intent: 'capture' }, '', res); return; }
+    PTIntent.route(text, function (routed) { finishVoiceWith(routed, text, res); });
+  }
+
+  function finishVoiceWith(routed, text, res) {
+    var box = el('ptTrx');
+    var secs = ((Date.now() - voiceStart) / 1000).toFixed(1);
+    var wav = {};
+    if (recordingWav) {
+      try { wav = PTBridge.stopRecording() || {}; } catch (e) {}
+      recordingWav = false;
+    }
     if (text && routed.intent !== 'capture') {
       if (box) {
         box.innerHTML =
@@ -244,7 +258,6 @@ var PTCapture = (function () {
     var note = text ? (PTExtract.noteFromSpeech(text) || text) : '';
     var purpose = routed.purpose || '';
 
-    var box = el('ptTrx');
     if (box) {
       if (text) {
         box.innerHTML =

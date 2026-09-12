@@ -270,6 +270,16 @@ class LlmEngine(private val ctx: Context) {
                             TAG,
                             "llm: Qwen3-1.7B loaded on ${unit.uppercase()} from ${root.name}"
                         )
+                        /* First classification after load took 4.7s against
+                         * ~400ms for every one after it - the cold prompt pays
+                         * for graph setup. Spend that at launch instead of on
+                         * the user's first utterance. */
+                        scope.launch {
+                            val t0 = System.currentTimeMillis()
+                            run(it, "warm up")
+                            Log.i(TAG, "llm: warmed in " +
+                                (System.currentTimeMillis() - t0) + "ms")
+                        }
                     },
                     onFailure = {
                         lastError = "$unit load failed: ${it.message}"
@@ -332,6 +342,16 @@ class LlmEngine(private val ctx: Context) {
 
     private suspend fun run(engine: LlmWrapper, text: String): String? {
         return try {
+            /* Clear the KV cache between classifications.
+             *
+             * Each call is independent, but the wrapper keeps context across
+             * generate() calls. Without a reset the prompts accumulate and the
+             * model degenerates - observed on device as a repeating token run
+             * ("STRACTSTRACTSTRACT...") on the third consecutive classification
+             * after two clean ones. */
+            try { engine.reset() } catch (e: Throwable) {
+                Log.w(TAG, "llm: reset failed: " + e.message)
+            }
             val messages = arrayOf(
                 ChatMessage("system", SYSTEM),
                 ChatMessage("user", text)
@@ -342,9 +362,11 @@ class LlmEngine(private val ctx: Context) {
             val cfg = GenerationConfig()
             // An intent label is a handful of tokens; a long budget only invites
             // the model to keep talking after the JSON is closed.
-            // Enough for one JSON line; a larger budget only invites the model
-            // to keep talking after the object is closed.
-            cfg.maxTokens = 96
+            /* Qwen3 emits an empty <think></think> pair even with /no_think,
+             * and that costs tokens before the JSON starts. At 96 the answer was
+             * being truncated mid-think, leaving "<think>" as the whole reply.
+             * 256 leaves room for the block plus one JSON object. */
+            cfg.maxTokens = 256
 
             val sb = StringBuilder()
             engine.generateStreamFlow(prompt, cfg).collect { chunk ->
