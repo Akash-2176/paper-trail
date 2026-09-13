@@ -28,7 +28,8 @@
     <application
         android:extractNativeLibs="true"
         android:label="Paper Trail"
-        android:icon="@android:drawable/ic_menu_recent_history"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true">

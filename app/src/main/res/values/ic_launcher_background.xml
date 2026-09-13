@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Averaged from a ring just inside the artwork's own squircle edge - which
+      is exactly where this flat layer and the foreground meet. The artwork's
+      background is a vertical gradient, so no single colour matches it
+      everywhere; matching at the seam is what stops the icon reading as a
+      darker tile floating on a different blue.
+    -->
+    <color name="ic_launcher_background">#023794</color>
+</resources>

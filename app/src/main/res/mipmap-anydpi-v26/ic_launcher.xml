@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive launcher icon (API 26+).
+
+  The launcher masks these two layers to whatever shape the device uses, so the
+  foreground carries the artwork scaled into the 72dp safe zone and the
+  background is a flat fill sampled from the artwork's own squircle. Without
+  the flat background behind it, the mask would cut into the icon's own rounded
+  corners and read as a rendering fault.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
