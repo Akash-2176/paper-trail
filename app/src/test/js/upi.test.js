@@ -36,11 +36,14 @@ function group(name) { console.log('\n' + name); }
 global.window = global;
 
 var bridgeCalls = [];
+/* A real round-trip through "disk", so a restart can actually be simulated:
+ * a stub that always loads {} would let a broken save pass every test. */
+var disk = null;
 global.PTBridge = {
   log: function () {},
-  saveLedger: function () { return true; },
-  loadLedger: function () { return {}; },
-  clearLedger: function () { return true; },
+  saveLedger: function (o) { disk = JSON.parse(JSON.stringify(o)); return true; },
+  loadLedger: function () { return disk ? JSON.parse(JSON.stringify(disk)) : {}; },
+  clearLedger: function () { disk = null; return true; },
   upiMarkVerified: function (id, ev) {
     bridgeCalls.push({ fn: 'upiMarkVerified', id: id, evidence: ev });
     // Mirrors the native guard: only SUBMITTED/PENDING may be promoted.
@@ -89,6 +92,13 @@ function reset() {
   PTStore.reset();
   bridgeCalls = [];
   verifiable = {};
+  disk = null;
+}
+
+/** Drop everything in memory and reload from "disk", as a relaunch does. */
+function restart() {
+  PTStore.reset();
+  PTStore.load();
 }
 
 // --- 1. which payments enter the ledger ---------------------------------
@@ -354,6 +364,99 @@ test('a payment with no payee name falls back to the VPA', function () {
   reset();
   PTStore.syncUpi([upiTxn({ payeeName: '' })]);
   assert.strictEqual(PTStore.pending[0].note, 'merchant@upi');
+});
+
+// --- 7. deleting a mistake ----------------------------------------------
+
+group('Delete — things get added by accident');
+
+test('a pending capture is removed outright', function () {
+  reset();
+  var p = PTStore.addPending({ amount: 99, note: 'typo' });
+  assert.strictEqual(PTStore.remove('waiting', p), true);
+  assert.strictEqual(PTStore.pending.length, 0);
+});
+
+test('a deleted bank row does not come back on the next sync', function () {
+  reset();
+  var sms = bankSms();
+  PTStore.setTxns([sms]);
+  assert.strictEqual(PTStore.txns.length, 1);
+  PTStore.remove('bare', sms);
+  assert.strictEqual(PTStore.txns.length, 0);
+  // SMS is re-read from the provider every launch, so this is the real test.
+  PTStore.setTxns([sms]);
+  assert.strictEqual(PTStore.txns.length, 0, 'suppression must survive a re-read');
+});
+
+test('deleting a reconciled pair also suppresses its bank row', function () {
+  reset();
+  PTStore.syncUpi([upiTxn()]);
+  PTStore.setTxns([bankSms()]);
+  PTStore.reconcileAll();
+  assert.strictEqual(PTStore.reconciled.length, 1);
+  PTStore.remove('done', PTStore.reconciled[0]);
+  assert.strictEqual(PTStore.reconciled.length, 0);
+  // Otherwise the payment returns as an unexplained bank debit, which is not
+  // what "delete" means to anyone.
+  PTStore.setTxns([bankSms()]);
+  assert.strictEqual(PTStore.txns.length, 0);
+});
+
+test('a deleted UPI payment is not resurrected by syncUpi', function () {
+  reset();
+  PTStore.syncUpi([upiTxn()]);
+  PTStore.remove('waiting', PTStore.pending[0]);
+  assert.strictEqual(PTStore.pending.length, 0);
+  // syncUpi runs on every boot against the native store, which still has it.
+  PTStore.syncUpi([upiTxn()]);
+  assert.strictEqual(PTStore.pending.length, 0, 'must stay deleted across boots');
+});
+
+test('deleting one entry leaves the others alone', function () {
+  reset();
+  var a = PTStore.addPending({ amount: 10, note: 'keep' });
+  var b = PTStore.addPending({ amount: 20, note: 'drop' });
+  PTStore.remove('waiting', b);
+  assert.strictEqual(PTStore.pending.length, 1);
+  assert.strictEqual(PTStore.pending[0].note, 'keep');
+});
+
+test('a deleted bank row stays deleted after a restart', function () {
+  reset();
+  var sms = bankSms();
+  PTStore.setTxns([sms]);
+  PTStore.remove('bare', sms);
+  // The suppression lives in the ledger file, not just in memory.
+  restart();
+  PTStore.setTxns([sms]);
+  assert.strictEqual(PTStore.txns.length, 0, 'deletion must survive a relaunch');
+});
+
+test('a deleted UPI payment stays deleted after a restart', function () {
+  reset();
+  PTStore.syncUpi([upiTxn()]);
+  PTStore.remove('waiting', PTStore.pending[0]);
+  restart();
+  PTStore.syncUpi([upiTxn()]);
+  assert.strictEqual(PTStore.pending.length, 0);
+});
+
+test('a ledger written before delete existed still loads', function () {
+  reset();
+  // No `dismissed` key at all - the shape every existing device has on disk.
+  disk = { v: 1, seq: 3, pending: [], reconciled: [], savedAt: Date.now() };
+  assert.strictEqual(PTStore.load(), true);
+  PTStore.setTxns([bankSms()]);
+  assert.strictEqual(PTStore.txns.length, 1, 'nothing should be suppressed');
+});
+
+test('deleting something already gone is a no-op, not a crash', function () {
+  reset();
+  var p = PTStore.addPending({ amount: 10, note: 'x' });
+  PTStore.remove('waiting', p);
+  assert.strictEqual(PTStore.remove('waiting', p), false);
+  assert.strictEqual(PTStore.remove('waiting', null), false);
 });
 
 // --- report --------------------------------------------------------------

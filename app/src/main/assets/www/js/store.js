@@ -7,6 +7,11 @@ var PTStore = (function () {
   var txns = [];        // structured rows from the bridge
   var reconciled = [];  // merged records
   var seq = 1;
+  /* Bank rows the user deleted, by SMS id. SMS is re-read from the provider on
+   * every launch (ADR-003 keeps it at the source and never caches it), so a
+   * deleted row can only be remembered as a suppression - otherwise it would
+   * silently return on the next sync. */
+  var dismissed = {};
 
   function addPending(o) {
     var p = {
@@ -47,6 +52,9 @@ var PTStore = (function () {
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
       if (!t || !LEDGER_STATES[t.state]) continue;
+      // A UPI entry the user deleted stays deleted; syncUpi runs on every boot
+      // and would otherwise resurrect it from the native store.
+      if (dismissed['upi:' + t.id]) continue;
       var existing = findByUpiId(t.id);
       if (existing) { applyUpi(existing, t); continue; }
       var p = addPending({
@@ -120,10 +128,64 @@ var PTStore = (function () {
   }
 
   function setTxns(list) {
-    txns = (list || []).slice();
+    txns = (list || []).filter(function (t) {
+      // A bank row the user deleted must not reappear on the next sync.
+      return !dismissed[String(t.id)];
+    });
     // newest first
     txns.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
     return txns;
+  }
+
+  /**
+   * Remove an entry the user says was a mistake.
+   *
+   * Three shapes live in the ledger and each needs different handling:
+   *
+   *   waiting  a capture awaiting an SMS - drop it outright.
+   *   done     a reconciled pair - drop the merge, and dismiss the bank row
+   *            with it. Keeping the row would resurrect the payment as an
+   *            unexplained debit, which is not what "delete" means to anyone.
+   *   bare     a bank SMS - it is re-read from the provider every launch, so
+   *            it can only be suppressed, never deleted. The message itself is
+   *            never touched: ADR-003 keeps SMS at the source.
+   */
+  function remove(state, rec) {
+    if (!rec) return false;
+    var i;
+    if (state === 'waiting') {
+      for (i = 0; i < pending.length; i++) {
+        if (pending[i].id === rec.id) {
+          if (pending[i].upi) dismissed['upi:' + pending[i].upi.id] = 1;
+          pending.splice(i, 1);
+          save();
+          return true;
+        }
+      }
+      return false;
+    }
+    if (state === 'done') {
+      for (i = 0; i < reconciled.length; i++) {
+        if (reconciled[i].id === rec.id) {
+          var t = reconciled[i].txn;
+          if (t) dismissed[String(t.id)] = 1;
+          var pd = reconciled[i].pending;
+          if (pd && pd.upi) dismissed['upi:' + pd.upi.id] = 1;
+          reconciled.splice(i, 1);
+          txns = txns.filter(function (x) { return !dismissed[String(x.id)]; });
+          save();
+          return true;
+        }
+      }
+      return false;
+    }
+    if (state === 'bare') {
+      dismissed[String(rec.id)] = 1;
+      txns = txns.filter(function (x) { return String(x.id) !== String(rec.id); });
+      save();
+      return true;
+    }
+    return false;
   }
 
   function isMerged(txnId) {
@@ -199,6 +261,7 @@ var PTStore = (function () {
       seq: seq,
       pending: pending,
       reconciled: reconciled,
+      dismissed: dismissed,
       savedAt: Date.now()
     });
   }
@@ -208,6 +271,8 @@ var PTStore = (function () {
     if (!d || d.v !== 1) return false;
     pending = Array.isArray(d.pending) ? d.pending : [];
     reconciled = Array.isArray(d.reconciled) ? d.reconciled : [];
+    // Absent in ledgers written before delete existed; an empty map is correct.
+    dismissed = (d.dismissed && typeof d.dismissed === 'object') ? d.dismissed : {};
     seq = Number(d.seq) || (pending.length + reconciled.length + 1);
     trim();
     PTBridge.log('store: restored pending=' + pending.length +
@@ -225,15 +290,18 @@ var PTStore = (function () {
     verifyMergedUpi: verifyMergedUpi,
     reconcileAll: reconcileAll,
     confirmMerge: confirmMerge,
+    remove: remove,
     isMerged: isMerged,
     get pending() { return pending; },
     get txns() { return txns; },
     get reconciled() { return reconciled; },
     /** In-memory only, for tests. Disk is untouched. */
-    reset: function () { pending = []; txns = []; reconciled = []; seq = 1; },
+    reset: function () {
+      pending = []; txns = []; reconciled = []; seq = 1; dismissed = {};
+    },
     /** Clears memory AND disk, so a wipe survives a restart. */
     wipe: function () {
-      pending = []; txns = []; reconciled = []; seq = 1;
+      pending = []; txns = []; reconciled = []; seq = 1; dismissed = {};
       PTBridge.clearLedger();
     }
   };

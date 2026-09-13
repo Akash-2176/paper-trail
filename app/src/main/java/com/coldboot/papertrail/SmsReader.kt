@@ -246,9 +246,30 @@ object SmsReader {
                     val segs = segments(rawBody)
                     segs.forEachIndexed { idx, seg ->
                         val amount = parseAmount(seg) ?: return@forEachIndexed
+                        /* A zero amount is not a transaction.
+                         *
+                         * Promotional and service messages ("recharge for Rs 0
+                         * convenience fee", data-balance notices) carry a
+                         * matchable number without describing money moving.
+                         * Three such AIRTEL rows reached the ledger on device as
+                         * unlabelled ₹0 payments, which pushed real spending
+                         * down the list and inflated the unexplained count with
+                         * entries no one can ever explain. */
+                        if (amount <= 0.0) return@forEachIndexed
                         val issuer = routed ?: issuerFromBody(seg) ?: issuerFromBody(rawBody)
                         val m = merchant(seg)
                         val p2p = isP2P(seg, m)
+
+                        /* Nothing that identifies a payment. With no amount
+                         * context, no direction, no account, no reference and
+                         * no counterparty, there is no transaction here to
+                         * reconcile or explain - only noise the user is asked
+                         * to account for. */
+                        if (direction(seg) == "unknown" && m == null &&
+                            acctLast4(seg) == null && ref(seg) == null
+                        ) {
+                            return@forEachIndexed
+                        }
 
                         out.put(JSONObject().apply {
                             // Segment-qualified id so multiple txns from one row stay distinct.

@@ -5,22 +5,33 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Paper Trail</title>
 <style>
+  /* Palette follows Google Pay's dark surfaces: a near-black ground with
+     surfaces that LIFT by getting lighter, rather than being drawn with
+     borders. Borders are kept only where a card must separate from a
+     same-tone neighbour. Accents are Google's own hues, which is what makes
+     the app read as belonging beside GPay rather than imitating it. */
   :root {
     color-scheme: dark;
-    --bg: #0d0f12;
-    --card-bg: #14171c;
-    --card-border: #232930;
-    --text-primary: #e6e8eb;
-    --text-muted: #7e8794;
-    --accent-blue: #3b82f6;
-    --accent-green: #22c55e;
-    --accent-amber: #f59e0b;
-    --accent-purple: #a855f7;
-    --accent-red: #ef4444;
+    --bg: #0b0f14;
+    --surface: #161b22;        /* cards, sheets */
+    --surface-2: #1d242d;      /* raised: chips, inputs, secondary buttons */
+    --surface-3: #28313c;      /* pressed / hover */
+    --card-bg: var(--surface);
+    --card-border: #222b35;
+    --text-primary: #e8eaed;   /* Google grey-100 */
+    --text-muted: #9aa0a6;     /* Google grey-500, the real GPay secondary */
+    --accent-blue: #8ab4f8;    /* Google blue-300, the dark-theme primary */
+    --accent-blue-solid: #1a73e8;
+    --accent-green: #81c995;
+    --accent-amber: #fdd663;
+    --accent-purple: #c58af9;
+    --accent-red: #f28b82;
+    --radius: 16px;            /* GPay's cards are generously rounded */
+    --radius-sm: 12px;
   }
-  
+
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  
+
   body {
     margin: 0;
     padding: 214px 12px 132px;
@@ -64,9 +75,9 @@
     display: flex; gap: 6px; margin-bottom: 10px;
   }
   .cbox {
-    flex: 1 1 0; background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 9px; padding: 8px 10px;
+    flex: 1 1 0; background: var(--surface);
+    border: none;
+    border-radius: var(--radius-sm); padding: 10px 10px;
     /* height:auto and centred content - the boxes were inheriting a tall
        min-height from the old three-tile layout and leaving dead space. */
     display: flex; align-items: center; justify-content: center;
@@ -80,7 +91,7 @@
     font-size: 9px; text-transform: uppercase;
     letter-spacing: .06em; color: var(--text-muted);
   }
-  .cbox.zero .big { color: #4ade80; }
+  .cbox.zero .big { color: var(--accent-green); }
   .cbox.warn .big { color: var(--accent-amber); }
   .cbox.bad  .big { color: var(--accent-red); }
   .bar {
@@ -158,13 +169,19 @@
   .why { color: #6b7280; font-size: 10px; margin-top: 3px; }
 
   /* --- Chips ----------------------------------------------------- */
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-  .chip { font-size: 9px; padding: 2px 6px; border-radius: 99px; border: 1px solid transparent; }
-  .chip.sms    { background: #10243d; color: #7cc0ff; border-color: #1b3a5e; }
-  .chip.ocr    { background: #0f2e21; color: #5ee9a4; border-color: #174633; }
-  .chip.voice  { background: #2e1b3d; color: #d0a3f5; border-color: #46295e; }
-  .chip.purpose{ background: #3a2c10; color: #f5cd7a; border-color: #5c451a; }
-  .chip.none   { background: #241416; color: #f87171; border-color: #45201f; }
+  /* Flat tonal chips, no borders - closer to Material's assist chips than the
+     outlined badges they replace, and much quieter under a dense list. */
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .chip {
+    font-size: 10px; font-weight: 500; padding: 3px 9px;
+    border-radius: 99px; border: none; letter-spacing: .01em;
+  }
+  .chip.sms    { background: #17293d; color: var(--accent-blue); }
+  .chip.upi    { background: #17293d; color: var(--accent-blue); }
+  .chip.ocr    { background: #16301f; color: var(--accent-green); }
+  .chip.voice  { background: #2b1f3d; color: var(--accent-purple); }
+  .chip.purpose{ background: #33291a; color: var(--accent-amber); }
+  .chip.none   { background: #3a1f1f; color: var(--accent-red); }
 
   /* --- Fixed Bottom Smart Action Bar ---------------------------- */
   .actionBar {
@@ -189,21 +206,26 @@
 
   .actionTop { display: flex; gap: 8px; align-items: center; }
   .actionTop input {
-    flex: 1 1 auto; background: var(--card-bg); border: 1px solid #2b323c;
-    border-radius: 99px; padding: 11px 16px; color: var(--text-primary);
+    flex: 1 1 auto; background: var(--surface-2); border: 1px solid transparent;
+    border-radius: 99px; padding: 12px 18px; color: var(--text-primary);
     font-size: 15px; outline: none; font-family: inherit;
-    transition: border-color .15s;
+    transition: border-color .15s, background .15s;
   }
-  .actionTop input:focus { border-color: var(--accent-blue); }
-  
+  .actionTop input:focus { border-color: var(--accent-blue); background: var(--surface-3); }
+  .actionTop input:disabled { opacity: .5; }
+
   .actionBtn {
-    width: 42px; height: 42px; border-radius: 21px; background: #1f2630;
-    border: 1px solid #2b323c; color: var(--text-primary);
+    width: 44px; height: 44px; border-radius: 22px; background: var(--surface-2);
+    border: none; color: var(--text-primary);
     display: flex; align-items: center; justify-content: center;
     font-size: 17px; flex-shrink: 0; cursor: pointer;
+    transition: background .15s;
   }
-  .actionBtn:active { background: #2a323e; }
-  .actionBtn.primary { background: #2563eb; border-color: #3b82f6; }
+  .actionBtn:active { background: var(--surface-3); }
+  /* GPay's primary is a light blue on dark with dark text, not a saturated
+     blue with white text - it is the accessible pairing in a dark theme. */
+  .actionBtn.primary { background: var(--accent-blue); color: #0b0f14; }
+  .actionBtn.primary:active { background: #a8c7fa; }
   
   .actionTools { display: flex; gap: 8px; justify-content: space-around; }
   .actionTools button {
@@ -215,10 +237,10 @@
   /* Scan & Pay is the product's front door - it should not look like a
      sibling of "Sync SMS". */
   .actionTools button.toolPay {
-    background: #1d4ed8; border: 1px solid #2563eb; color: #fff;
-    border-radius: 99px; padding: 7px 14px; font-weight: 600;
+    background: var(--accent-blue); border: none; color: #0b0f14;
+    border-radius: 99px; padding: 9px 18px; font-weight: 600; font-size: 13px;
   }
-  .actionTools button.toolPay:active { background: #1e40af; color: #fff; }
+  .actionTools button.toolPay:active { background: #a8c7fa; color: #0b0f14; }
 
   /* --- Sheets ---------------------------------------------------- */
   body.camera { background: transparent; }
@@ -255,18 +277,23 @@
     padding: 8px 12px 10px;
     border-bottom: 1px solid var(--card-border);
   }
+  /* Pill tabs on a tonal ground, Material 3 style. */
   .tab {
-    flex: 1 1 0; padding: 8px 6px; font-size: 12px; font-weight: 600;
-    background: transparent; border: 1px solid var(--card-border);
-    border-radius: 8px; color: var(--text-muted);
+    flex: 1 1 0; padding: 9px 6px; font-size: 13px; font-weight: 500;
+    background: var(--surface); border: none;
+    border-radius: 99px; color: var(--text-muted);
     display: flex; align-items: center; justify-content: center; gap: 5px;
+    transition: background .15s, color .15s;
   }
-  .tab.active { background: #1f2630; color: var(--text-primary); border-color: #3b4450; }
+  .tab.active { background: #1a3050; color: var(--accent-blue); font-weight: 600; }
+  /* Ask before anything is explained: visibly unavailable, still tappable so
+     the tab can explain itself rather than silently doing nothing. */
+  .tab.locked { color: #5f6772; }
   .tabCount {
-    background: #2b323c; color: #9aa4b2; border-radius: 99px;
-    padding: 0 6px; font-size: 10px; font-weight: 700;
+    background: var(--surface-3); color: var(--text-muted); border-radius: 99px;
+    padding: 0 7px; font-size: 10px; font-weight: 700;
   }
-  .tab.active .tabCount { background: var(--accent-blue); color: #fff; }
+  .tab.active .tabCount { background: var(--accent-blue); color: #0b0f14; }
 
   /* Ledger filters. Visually lighter than the mode tabs above them, so the
      hierarchy reads: which mode am I in, then which slice of it. */
@@ -282,32 +309,50 @@
   /* --- Payment row ------------------------------------------------ */
   /* One row shape for every payment. What differs is the state stripe and
      the chips, not the section it lives in. */
+  /* GPay's transaction list: no border, a leading avatar circle, and the
+     amount right-aligned. The state stripe is gone - state is carried by the
+     avatar's tint and the meta line, which is quieter and reads faster than
+     four competing coloured edges down the left of the screen. */
   .pay {
-    background: var(--card-bg); border: 1px solid var(--card-border);
-    border-left: 3px solid var(--card-border);
-    border-radius: 10px; padding: 11px 12px; margin-bottom: 7px;
-    cursor: pointer; transition: border-color .15s, transform .1s;
+    background: var(--surface);
+    border: none; border-radius: var(--radius);
+    padding: 13px 14px 13px 12px; margin-bottom: 8px;
+    cursor: pointer; transition: background .15s, transform .1s;
+    display: flex; gap: 12px; align-items: flex-start;
   }
-  .pay:active { transform: scale(0.995); }
-  .pay.done    { border-left-color: var(--accent-green); }
-  .pay.waiting { border-left-color: var(--accent-amber); }
-  .pay.bare    { border-left-color: var(--accent-blue); }
-  .pay.dup     { border-left-color: #fb923c; background: #221510; }
+  .pay:active { transform: scale(0.99); background: var(--surface-2); }
+
+  /* The avatar carries the state colour. */
+  .payIcon {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 600; margin-top: 1px;
+    background: var(--surface-3); color: var(--text-muted);
+  }
+  .pay.done    .payIcon { background: #1e3a29; color: var(--accent-green); }
+  .pay.waiting .payIcon { background: #3a3018; color: var(--accent-amber); }
+  .pay.bare    .payIcon { background: #1a2c44; color: var(--accent-blue); }
+  .pay.dup     .payIcon { background: #45291a; color: #fbbf24; }
+  .payMain { flex: 1 1 auto; min-width: 0; }
+  .pay.dup     { background: #241a12; }
   .pay.flash   { animation: flash .9s ease-out; }
 
-  .payTop { display: flex; align-items: baseline; gap: 9px; }
+  /* Name leads, amount is right-aligned - the GPay reading order. The amount
+     sitting first made every row start with a number, which is hard to scan
+     when what you are looking for is who you paid. */
+  .payTop { display: flex; align-items: baseline; gap: 10px; }
   .payAmt {
-    font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums;
-    letter-spacing: -.01em;
+    font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em; flex-shrink: 0; margin-left: auto;
   }
-  .payAmt.credit { color: #4ade80; }
+  .payAmt.credit { color: var(--accent-green); }
   .payWho {
     flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; font-weight: 500;
+    white-space: nowrap; font-weight: 500; font-size: 14px;
   }
   .payWho.unknown { color: var(--text-muted); font-style: italic; font-weight: 400; }
   .payWhen { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-  .payMeta { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
+  .payMeta { color: var(--text-muted); font-size: 12px; margin-top: 3px; }
   .payWarn {
     font-size: 11px; color: #fb923c; margin-top: 5px;
     display: flex; gap: 5px; align-items: center;
@@ -320,9 +365,17 @@
            align-items: flex-end; background: rgba(0,0,0,.55); }
   .sheet.hidden { display: none; }
   .sheetInner {
-    width: 100%; background: var(--card-bg);
-    border-top: 1px solid #2b323c; border-radius: 16px 16px 0 0;
-    padding: 16px 16px 26px; max-height: 82vh; overflow-y: auto;
+    width: 100%; background: var(--surface);
+    border-top: none; border-radius: 28px 28px 0 0;
+    padding: 20px 18px 28px; max-height: 82vh; overflow-y: auto;
+    box-shadow: 0 -8px 40px rgba(0,0,0,.55);
+  }
+  /* Material bottom sheets carry a drag handle; it also reads as "this can be
+     dismissed", which the bare sheet did not. */
+  .sheetInner::before {
+    content: ''; display: block; width: 34px; height: 4px;
+    background: var(--surface-3); border-radius: 99px;
+    margin: -6px auto 14px;
   }
   .sheetHead {
     display: flex; align-items: center; font-size: 14px;
@@ -347,13 +400,50 @@
     width: 100%; border-radius: 10px; margin: 10px 0 4px;
     border: 1px solid var(--card-border);
   }
-  .dActions { display: flex; gap: 8px; margin-top: 14px; }
+  .dActions { display: flex; gap: 8px; margin-top: 16px; }
   .dActions button {
-    flex: 1 1 0; padding: 12px; border-radius: 9px; font-size: 13px;
-    font-weight: 600; background: #1f2630; border: 1px solid #2b323c;
-    color: var(--text-primary);
+    flex: 1 1 0; padding: 13px 8px; border-radius: 99px; font-size: 13px;
+    font-weight: 600; background: var(--surface-2); border: none;
+    color: var(--text-primary); font-family: inherit;
   }
-  .dActions button.go { background: #1d4ed8; border-color: #2563eb; }
+  .dActions button:active { background: var(--surface-3); }
+  .dActions button.go { background: var(--accent-blue); color: #0b0f14; }
+
+  /* Delete sits apart from the actions that ADD to the record, and is styled
+     down rather than up: it is destructive and irreversible, so it should
+     never be the thing the eye lands on first. */
+  .dDanger {
+    margin-top: 18px; padding-top: 14px;
+    border-top: 1px solid var(--card-border); text-align: center;
+  }
+  .dDel {
+    background: none; border: none; color: var(--accent-red);
+    font-size: 13px; font-family: inherit; padding: 8px 14px;
+    border-radius: 99px;
+  }
+  .dDel:active { background: #3a1f1f; }
+  .dDelGo { background: #5c1d1a !important; color: var(--accent-red) !important; }
+
+  /* The confirm step. States plainly what will happen, because it cannot be
+     undone. */
+  .dConfirm { padding: 6px 0 2px; }
+  .dcWhat {
+    font-size: 18px; font-weight: 600; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .dcWhy {
+    font-size: 13px; color: var(--text-muted); text-align: center;
+    line-height: 1.55; margin-top: 10px;
+  }
+
+  /* Ask, before there is anything to ask about. */
+  .askCta { margin-top: 18px; }
+  .askCta button {
+    background: var(--accent-blue); color: #0b0f14; border: none;
+    border-radius: 99px; padding: 12px 26px; font-size: 13px;
+    font-weight: 600; font-family: inherit;
+  }
+  .askCta button:active { background: #a8c7fa; }
 
   /* --- UPI ---------------------------------------------------------- */
   /* Built from the same tokens as the rest of the app: same card colours,
@@ -758,6 +848,16 @@
            p.evidence.indexOf('purpose') >= 0;
   }
 
+  /* The merchant's initial, the way GPay does it - a letter you recognise at a
+   * glance beats a generic icon repeated down the list. Falls back to a symbol
+   * only when there is genuinely no name to take a letter from. */
+  function avatarFor(p) {
+    if (p.credit) return '↓';
+    var name = (p.who || '').replace(/[^A-Za-z0-9]/g, '');
+    if (name) return esc(name.charAt(0).toUpperCase());
+    return p.state === 'bare' ? '✉' : '₹';
+  }
+
   var rowIndex = {};
 
   function render(flashIds) {
@@ -796,21 +896,31 @@
         ? '<span class="payWho">' + esc(p.who) + '</span>'
         : '<span class="payWho unknown">unlabelled payment</span>';
       return '<div class="' + cls + '" onclick="openDetail(&quot;' + p.key + '&quot;)">' +
-        '<div class="payTop">' +
-          '<span class="payAmt' + (p.credit ? ' credit' : '') + '">' +
-            (p.credit ? '+' : '') + money(p.amount) + '</span>' +
-          who +
-          '<span class="payWhen">' + ago(p.ts) + '</span>' +
+        '<div class="payIcon">' + avatarFor(p) + '</div>' +
+        '<div class="payMain">' +
+          '<div class="payTop">' +
+            who +
+            '<span class="payAmt' + (p.credit ? ' credit' : '') + '">' +
+              (p.credit ? '+' : '') + money(p.amount) + '</span>' +
+          '</div>' +
+          '<div class="payMeta">' + esc(p.meta) + ' · ' + ago(p.ts) + '</div>' +
+          (dup ? '<div class="payWarn">⚠ possible duplicate · ' +
+                 Math.round(dup.gapMs / 60000) + ' min apart</div>' : '') +
+          chipHtml(p.evidence, p.rec.purpose) +
         '</div>' +
-        '<div class="payMeta">' + esc(p.meta) + '</div>' +
-        (dup ? '<div class="payWarn">⚠ possible duplicate · ' +
-               Math.round(dup.gapMs / 60000) + ' min apart</div>' : '') +
-        chipHtml(p.evidence, p.rec.purpose) +
       '</div>';
     }).join('');
 
     $('ledger').innerHTML = html || emptyState();
     renderClarity();
+    renderAskTab();
+  }
+
+  /** The Ask tab shows a lock until there is something to answer from. */
+  function renderAskTab() {
+    syncAskTabClass();
+    // If the lock fell while sitting on the tab, refresh the pane under it.
+    if (mode === 'ask' && !askReady()) renderAskLocked();
   }
 
   /** Empty states say what to do next, not just that there is nothing. */
@@ -901,12 +1011,40 @@
       chipHtml(p.evidence, pend && pend.purpose) +
       shot +
       '<div style="margin-top:12px">' + rows.join('') + '</div>' +
+      /* Speaking is the fastest way to explain a payment and was previously
+       * only reachable by tapping the mic in the action bar after the sheet
+       * had closed - so the obvious route from "this needs evidence" to
+       * saying what it was for did not exist. */
       (explained(p) ? '' :
         '<div class="dActions">' +
-          '<button class="go" onclick="explainThis(&quot;' + key + '&quot;)">Add evidence</button>' +
-        '</div>');
+          '<button class="go" onclick="explainBy(&quot;' + key + '&quot;,&quot;voice&quot;)">🎙 Say it</button>' +
+          '<button onclick="explainBy(&quot;' + key + '&quot;,&quot;photo&quot;)">📷 Receipt</button>' +
+          '<button onclick="explainThis(&quot;' + key + '&quot;)">⌨ Type</button>' +
+        '</div>') +
+      /* Deleting is destructive and irreversible, so it is visually quiet and
+       * sits apart from the actions that add to the record. */
+      '<div class="dDanger">' +
+        '<button class="dDel" onclick="confirmDelete(&quot;' + key + '&quot;)">Delete this entry</button>' +
+      '</div>';
 
     $('detailSheet').className = 'sheet';
+  }
+
+  /**
+   * Explain a payment straight into a capture mode.
+   *
+   * Sets the attach target first, so whatever comes back lands on THIS payment
+   * rather than creating a new one, then opens the capture UI directly.
+   */
+  function explainBy(key, how) {
+    closeDetail();
+    var p = rowIndex[key];
+    if (!p) return;
+    attachTarget = p;
+    setMode('ledger');
+    showAttachBar(p);
+    if (how === 'voice') PTCapture.startVoice();
+    else PTCapture.startPhoto();
   }
 
   function closeDetail() { $('detailSheet').className = 'sheet hidden'; }
@@ -951,6 +1089,47 @@
       ? 'Ask about your spending...' : 'Add a spend, e.g. 250 for lunch';
   }
 
+  /* --- Deleting an entry -------------------------------------------
+   *
+   * Things get added by accident - a misheard amount, a duplicate capture, a
+   * wrong tap - and without a way back the ledger becomes something the user
+   * stops trusting.
+   *
+   * Deleting always confirms first: it cannot be undone, and the whole point
+   * of the product is that the record is reliable. */
+  function confirmDelete(key) {
+    var p = rowIndex[key];
+    if (!p) return;
+    var what = money(p.amount) + (p.who ? ' · ' + p.who : '');
+    $('detailTitle').textContent = 'Delete this entry?';
+    $('detailBody').innerHTML =
+      '<div class="dConfirm">' +
+        '<div class="dcWhat">' + esc(what) + '</div>' +
+        '<div class="dcWhy">' +
+          (p.state === 'bare'
+            ? 'This came from a bank SMS. Deleting hides it from your ledger — ' +
+              'it will not come back on the next sync, and the message itself is untouched.'
+            : 'This will be removed from your ledger. This cannot be undone.') +
+        '</div>' +
+      '</div>' +
+      '<div class="dActions">' +
+        '<button class="dDelGo" onclick="doDelete(&quot;' + key + '&quot;)">Delete</button>' +
+        '<button onclick="openDetail(&quot;' + key + '&quot;)">Keep</button>' +
+      '</div>';
+  }
+
+  function doDelete(key) {
+    var p = rowIndex[key];
+    if (!p) return;
+    var ok = PTStore.remove(p.state, p.rec);
+    closeDetail();
+    if (!ok) return;
+    render();
+    appendChat('<div class="a">Deleted ' + money(p.amount) +
+      (p.who ? ' · ' + esc(p.who) : '') + '</div>', 'llm');
+    setMode('ledger');
+  }
+
   /**
    * Attach evidence to the targeted payment.
    *
@@ -985,10 +1164,16 @@
         rec.purpose = purpose;
         if (!rec.note || rec.note === 'Capture') rec.note = purpose;
       }
-      if (path) {
-        rec.path = path;
-        rec.source = (extra && extra.source) || rec.source;
-      }
+      if (path) rec.path = path;
+      /* Record HOW the explanation arrived, whether or not a file came with it.
+       *
+       * This was inside the `if (path)` above, so a spoken explanation only
+       * counted as voice when a WAV happened to exist - and it usually does
+       * not, because the recogniser owns the mic and no clip is recorded. The
+       * result was a payment explained out loud that showed a PURPOSE chip but
+       * never a VOICE one, understating the evidence the user actually gave. */
+      var src = extra && extra.source;
+      if (src === 'voice' || src === 'photo') rec.source = src;
     }
 
     PTStore.save();
@@ -1015,9 +1200,14 @@
 
   // --- Conversational Feed Append -------------------------------
   function appendChat(text, type, extraClass) {
-    // An answer belongs in the Ask tab; switch there so it is not written to a
-    // pane the user cannot see.
-    if (typeof setMode === 'function' && mode !== 'ask') setMode('ask');
+    /* An answer belongs in the Ask tab; switch there so it is not written to a
+     * pane the user cannot see - but never onto the locked empty state, which
+     * would leave a confirmation stranded under a "nothing to ask about"
+     * heading. Confirmations for ledger actions stay on the ledger. */
+    if (typeof setMode === 'function' && mode !== 'ask') {
+      if (!askReady()) return;
+      setMode('ask');
+    }
     var hint = $('askHint');
     if (hint) hint.style.display = 'none';
     var div = document.createElement('div');
@@ -1176,20 +1366,79 @@
     stamp();
   };
 
+  /* Ask needs something to answer from.
+   *
+   * Every answer is retrieved from explained records - a payment with no
+   * purpose, receipt or voice note contributes nothing but a number with no
+   * meaning. Opening Ask against an empty ledger produces confident-sounding
+   * "nothing recorded" replies that read as the feature being broken, so the
+   * tab says plainly what it needs instead. */
+  function askReady() {
+    var all = payments();
+    for (var i = 0; i < all.length; i++) if (explained(all[i])) return true;
+    return false;
+  }
+
   /* Mode tabs switch between the ledger and the conversation. */
   var mode = 'ledger';
   function setMode(m) {
+    // Refuse the switch rather than showing a dead tab, and say why.
+    if (m === 'ask' && !askReady()) {
+      renderAskLocked();
+      m = 'ask';
+    }
     mode = m;
     Array.prototype.forEach.call(document.querySelectorAll('#mainTabs .tab'), function (x) {
       x.className = 'tab' + (x.getAttribute('data-mode') === m ? ' active' : '');
     });
     $('modeLedger').style.display = m === 'ledger' ? '' : 'none';
     $('modeAsk').style.display = m === 'ask' ? '' : 'none';
-    $('smartInput').placeholder = m === 'ask'
-      ? 'Ask about your spending...'
-      : 'Add a spend, e.g. 250 for lunch';
+    var locked = m === 'ask' && !askReady();
+    $('smartInput').disabled = locked;
+    $('smartInput').placeholder = locked
+      ? 'Explain a payment first'
+      : (m === 'ask' ? 'Ask about your spending...'
+                     : 'Add a spend, e.g. 250 for lunch');
     if (m === 'ask') $('askHint').style.display =
-      $('chatFeed').children.length ? 'none' : '';
+      (!locked && $('chatFeed').children.length) ? 'none' : '';
+    // Keep the tab's own locked styling in step with the pane it just showed.
+    syncAskTabClass();
+  }
+
+  /** The 🔒 marker on the Ask tab itself. */
+  function syncAskTabClass() {
+    var ready = askReady();
+    var tab = document.querySelector('#mainTabs .tab[data-mode="ask"]');
+    if (!tab) return;
+    tab.className = 'tab' + (mode === 'ask' ? ' active' : '') + (ready ? '' : ' locked');
+    tab.firstChild.nodeValue = ready ? 'Ask ' : '🔒 Ask ';
+  }
+
+  /** What the Ask tab shows before there is anything worth asking about. */
+  function renderAskLocked() {
+    var un = PTMemory.unexplained(PTStore).count;
+    $('chatFeed').innerHTML = '';
+    $('askHint').style.display = '';
+    $('askHint').innerHTML =
+      '<div class="icon">🔒</div>' +
+      '<div class="head">Nothing to ask about yet</div>' +
+      '<div class="sub">' +
+        'Ask answers from payments you have explained — a receipt, a voice note ' +
+        'or a purpose.<br><br>' +
+        (un > 0
+          ? 'You have <b>' + un + '</b> payment' + (un === 1 ? '' : 's') +
+            ' waiting. Tap one and say what it was for.'
+          : 'Record a payment first, then explain what it was for.') +
+      '</div>' +
+      '<div class="askCta"><button onclick="goExplain()">' +
+        (un > 0 ? 'Explain a payment' : 'Go to Ledger') + '</button></div>';
+  }
+
+  /** Straight to the payments that need evidence - the route out of the lock. */
+  function goExplain() {
+    setMode('ledger');
+    var f = document.querySelector('.filt[data-view="unexplained"]');
+    if (f) f.click();
   }
   Array.prototype.forEach.call(document.querySelectorAll('#mainTabs .tab'), function (b) {
     b.onclick = function () { setMode(b.getAttribute('data-mode')); };
@@ -1239,6 +1488,17 @@
 
   // Voice/Photo Callbacks
   PTCapture.onIntent(function(intent, text) {
+    /* An open attach target claims the utterance FIRST.
+     *
+     * "this was for lunch" classifies as `context`, and context/query
+     * utterances return through onIntent instead of onResult - so while
+     * explaining a payment the mic used to route into handleSmartInput and
+     * create a SECOND entry, which is the exact duplication the attach flow
+     * exists to prevent. The words are the explanation; whatever they classify
+     * as is irrelevant once the user has said which payment they are about. */
+    if (attachTarget) {
+      if (applyAttach(text, { source: 'voice' })) return;
+    }
     if (intent.intent === 'query') {
       PTIntent.runQueryAsync(intent, PTStore, function (result) {
         appendChat('<div class="q">Voice Query</div><div class="a">' +
