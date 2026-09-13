@@ -84,12 +84,21 @@ object UpiIntentLauncher {
             currency = txn.currency,
             refId = txn.refId,
             note = txn.note,
-            merchantCode = txn.merchantCode
+            merchantCode = txn.merchantCode,
+            extras = txn.extras
         )
 
         /* Never log the full URI. It carries the payee's VPA and the amount;
          * logcat is readable by anyone with the device plugged in. */
-        Log.i(TAG, "upi: launching txn=${txn.id} app=${packageName ?: "chooser"}")
+        /* Parameter NAMES only, never their values: the URI carries the payee's
+         * VPA and the amount, and logcat is readable over adb. The shape is
+         * what matters when diagnosing a decline - an unexpected `tr` on a
+         * person-to-person payment is what made real payments fail. */
+        Log.i(
+            TAG,
+            "upi: launching txn=${txn.id} app=${packageName ?: "chooser"} " +
+                "fields=${uri.queryParameterNames.joinToString(",")}"
+        )
 
         val base = Intent(Intent.ACTION_VIEW, uri)
         val intent = if (packageName.isNullOrBlank()) {

@@ -201,17 +201,51 @@ object UpiUri {
         currency: String,
         refId: String,
         note: String,
-        merchantCode: String
+        merchantCode: String,
+        /**
+         * Unmodelled parameters from the scanned QR, forwarded verbatim.
+         *
+         * Bank and wallet merchant QRs carry `sign`, `mode` and `orgid`, where
+         * `sign` is a signature over the other fields. Dropping them turns a
+         * verified merchant QR into an unverified one, and the PSP declines it.
+         * We do not interpret these - we hand back exactly what the payee put
+         * on the QR.
+         */
+        extras: Map<String, String> = emptyMap()
     ): Uri {
         val b = Uri.Builder().scheme(SCHEME).authority("pay")
         b.appendQueryParameter("pa", vpa)
         if (payeeName.isNotBlank()) b.appendQueryParameter("pn", payeeName)
         if (merchantCode.isNotBlank()) b.appendQueryParameter("mc", merchantCode)
+        /* FORWARD the payee's `tr`, never invent one.
+         *
+         * `tr` is a MERCHANT transaction reference. Minting one for a payment
+         * to a person made every PSP treat it as a merchant collection from an
+         * unregistered merchant, and banks reject that under UPI risk policy -
+         * observed on device as "exceeded the bank limit" in GPay and an
+         * explicit "may fail as per UPI Risk Policy" warning in Paytm, for a
+         * ₹1 payment that succeeded when made from those same apps directly.
+         *
+         * Only a dynamic merchant QR supplies `tr`, and that value identifies
+         * the bill being settled, so it is passed through untouched. Paper
+         * Trail's own transaction id stays internal - correlation to a bank SMS
+         * is done on amount, payee and time, which is what the reconciliation
+         * engine already matches on. */
         if (refId.isNotBlank()) b.appendQueryParameter("tr", refId)
-        if (note.isNotBlank()) b.appendQueryParameter("tn", note.take(50))
+        /* The note is user-typed, so it is restricted to what the spec allows:
+         * alphanumerics, space and a little punctuation, 50 characters. An
+         * emoji or a symbol in a free-text field is an avoidable reason for a
+         * PSP to decline an otherwise valid payment. */
+        val safeNote = note.filter { it.isLetterOrDigit() || it in " .-_," }
+            .trim().take(50)
+        if (safeNote.isNotBlank()) b.appendQueryParameter("tn", safeNote)
         // Two decimal places: some PSP apps reject "300.0" or bare integers.
         b.appendQueryParameter("am", String.format(java.util.Locale.US, "%.2f", amount))
         b.appendQueryParameter("cu", currency.ifBlank { "INR" })
+        // Signed/bank-specific fields last, exactly as the payee wrote them.
+        for ((k, v) in extras) {
+            if (k.isNotBlank() && k !in KNOWN) b.appendQueryParameter(k, v)
+        }
         return b.build()
     }
 

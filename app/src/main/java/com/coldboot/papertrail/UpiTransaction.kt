@@ -139,9 +139,15 @@ data class UpiTransaction(
                 amount = amount,
                 currency = p.currency.ifBlank { "INR" },
                 merchantCode = p.merchantCode,
-                // The payee's own reference wins: a dynamic merchant QR uses it
-                // to identify the bill being settled.
-                refId = p.refId.ifBlank { UpiUri.refIdFor(id) },
+                /* ONLY the payee's own reference. Empty stays empty.
+                 *
+                 * This used to fall back to a generated PT... reference so
+                 * every payment had one. That broke real payments: `tr` means
+                 * "merchant transaction reference", and sending it for a
+                 * payment to a person made PSPs treat it as a collection from
+                 * an unregistered merchant, which banks decline. Paper Trail's
+                 * own id is [id] and never needs to be on the wire. */
+                refId = p.refId,
                 note = note.ifBlank { p.note },
                 source = "qr",
                 state = UpiState.CREATED,
