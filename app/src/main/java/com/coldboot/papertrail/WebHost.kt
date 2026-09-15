@@ -28,29 +28,66 @@ object WebHost {
     /**
      * Copy-from-assets on first run. Existing files are NOT overwritten unless forced,
      * so a hot-reloaded page survives an app restart.
+     *
+     * RECURSIVE. The product layer is index.html plus a js/ directory of modules,
+     * and a flat copy treated js/ as a file: assets.open() on a directory throws,
+     * so a FRESH INSTALL shipped index.html with none of its scripts and the page
+     * died on the first module reference ("PTUpi is not defined"). It went
+     * unnoticed because the deploy script pushes the js/ files itself, so every
+     * development device already had them.
      */
     fun seedFromAssets(ctx: Context, force: Boolean = false) {
         val dir = wwwDir(ctx)
+        val stats = intArrayOf(0, 0)   // copied, total
+        copyDir(ctx, DIR, dir, force, stats)
+        Log.i(TAG, "web: seeded " + stats[0] + "/" + stats[1] + " into " + dir.absolutePath)
+    }
+
+    /**
+     * Copy one asset directory into [target], descending into subdirectories.
+     *
+     * AssetManager gives no isDirectory(), so a node is classified by listing it:
+     * a non-empty listing is a directory, anything else is treated as a file.
+     */
+    private fun copyDir(
+        ctx: Context,
+        assetPath: String,
+        target: File,
+        force: Boolean,
+        stats: IntArray
+    ) {
         val names = try {
-            ctx.assets.list(DIR)?.toList() ?: emptyList()
+            ctx.assets.list(assetPath)?.toList() ?: emptyList()
         } catch (e: Exception) {
-            Log.e(TAG, "web: asset list failed: " + e.message)
-            emptyList()
+            Log.e(TAG, "web: asset list failed for " + assetPath + ": " + e.message)
+            return
         }
 
-        var copied = 0
         for (name in names) {
-            val target = File(dir, name)
-            if (target.exists() && !force) continue
-            try {
-                ctx.assets.open(DIR + "/" + name).use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
+            val childAsset = "$assetPath/$name"
+            val children = try { ctx.assets.list(childAsset) } catch (e: Exception) { null }
+
+            if (children != null && children.isNotEmpty()) {
+                val sub = File(target, name)
+                if (!sub.exists() && !sub.mkdirs()) {
+                    Log.e(TAG, "web: mkdir failed for " + sub.absolutePath)
+                    continue
                 }
-                copied++
+                copyDir(ctx, childAsset, sub, force, stats)
+                continue
+            }
+
+            stats[1]++
+            val file = File(target, name)
+            if (file.exists() && !force) continue
+            try {
+                ctx.assets.open(childAsset).use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                }
+                stats[0]++
             } catch (e: Exception) {
-                Log.e(TAG, "web: copy failed for " + name + ": " + e.message)
+                Log.e(TAG, "web: copy failed for " + childAsset + ": " + e.message)
             }
         }
-        Log.i(TAG, "web: seeded " + copied + "/" + names.size + " into " + dir.absolutePath)
     }
 }
